@@ -62,6 +62,6 @@ await server.connect(transport);
 
 // Log startup info to stderr only (stdout is reserved for JSON-RPC)
 process.stderr.write(
-  `[yuki-mcp] Server started — 13 tools registered. ` +
+  `[yuki-mcp] Server started — 14 tools registered. ` +
     `Domain ID: ${domainId || "(none — run get_administrations to discover)"}\n`
 );
