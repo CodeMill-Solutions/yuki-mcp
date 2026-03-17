@@ -1,5 +1,5 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { YukiClient } from "../yuki-client.js";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { YukiClient } from '../yuki-client.js';
 
 /**
  * Register tools related to Yuki administrations.
@@ -11,10 +11,7 @@ import { YukiClient } from "../yuki-client.js";
  * Yuki service: Accounting.asmx
  * Auth flow:    Authenticate(accessKey) → sessionID → Administrations(sessionID)
  */
-export function registerAdministrationTools(
-  server: McpServer,
-  client: YukiClient
-): void {
+export function registerAdministrationTools(server: McpServer, client: YukiClient): void {
   /**
    * get_administrations
    *
@@ -25,11 +22,11 @@ export function registerAdministrationTools(
    * On subsequent calls within the same session, Authenticate is skipped: 1 request.
    */
   server.registerTool(
-    "get_administrations",
+    'get_administrations',
     {
       description:
-        "List all Yuki administrations (companies) accessible with the configured API key. " +
-        "Run this first to discover the correct administrationID to pass to other tools.",
+        'List all Yuki administrations (companies) accessible with the configured API key. ' +
+        'Run this first to discover the correct administrationID to pass to other tools.',
     },
     async () => {
       try {
@@ -38,8 +35,8 @@ export function registerAdministrationTools(
 
         // Step 2 — Fetch administrations for this session
         const result = await client.callSoap({
-          service: "Accounting.asmx",
-          method: "Administrations",
+          service: 'Accounting.asmx',
+          method: 'Administrations',
           params: { sessionID },
         });
 
@@ -48,12 +45,8 @@ export function registerAdministrationTools(
         return {
           content: [
             {
-              type: "text" as const,
-              text: JSON.stringify(
-                { success: true, count: administrations.length, administrations },
-                null,
-                2
-              ),
+              type: 'text' as const,
+              text: JSON.stringify({ success: true, count: administrations.length, administrations }, null, 2),
             },
           ],
         };
@@ -62,14 +55,14 @@ export function registerAdministrationTools(
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify({ success: false, error: message }, null, 2),
             },
           ],
           isError: true,
         };
       }
-    }
+    },
   );
 }
 
@@ -81,11 +74,11 @@ function normalizeAdministrations(result: unknown): unknown[] {
   const rec = result as Record<string, unknown>;
 
   // The Administrations response wraps items in <Administrations><Administration>
-  const containers = [rec["Administrations"], rec["administrations"], result];
+  const containers = [rec['Administrations'], rec['administrations'], result];
   for (const c of containers) {
     if (!c) continue;
     if (Array.isArray(c)) return c;
-    const inner = (c as Record<string, unknown>)["Administration"];
+    const inner = (c as Record<string, unknown>)['Administration'];
     if (Array.isArray(inner)) return inner;
     if (inner) return [inner];
   }

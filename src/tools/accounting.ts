@@ -1,6 +1,6 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { YukiClient } from "../yuki-client.js";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { YukiClient } from '../yuki-client.js';
 
 /**
  * Register tools for working with the Yuki chart of accounts.
@@ -11,10 +11,7 @@ import { YukiClient } from "../yuki-client.js";
  * Yuki service: Accounting.asmx
  * Method:       GLAccountBalance(sessionID, administrationID, transactionDate)
  */
-export function registerAccountingTools(
-  server: McpServer,
-  client: YukiClient
-): void {
+export function registerAccountingTools(server: McpServer, client: YukiClient): void {
   /**
    * get_gl_accounts
    *
@@ -29,42 +26,35 @@ export function registerAccountingTools(
    * Rate cost: 1 request.
    */
   server.registerTool(
-    "get_gl_accounts",
+    'get_gl_accounts',
     {
       description:
-        "Retrieve all GL accounts (grootboekrekeningen) with their balance at a given date. " +
-        "Use this to find account codes (e.g. bank account codes) or get a financial snapshot. " +
+        'Retrieve all GL accounts (grootboekrekeningen) with their balance at a given date. ' +
+        'Use this to find account codes (e.g. bank account codes) or get a financial snapshot. ' +
         "Defaults to today's date if no date is provided.",
       inputSchema: {
-        date: z
-          .string()
-          .optional()
-          .describe(
-            "Date for the balance snapshot in YYYY-MM-DD format. Defaults to today."
-          ),
+        date: z.string().optional().describe('Date for the balance snapshot in YYYY-MM-DD format. Defaults to today.'),
         administrationId: z
           .string()
           .optional()
-          .describe("Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var."),
+          .describe('Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
       },
     },
     async ({ date, administrationId }) => {
       try {
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) {
-          throw new Error(
-            "administrationId is required (or set YUKI_DOMAIN_ID env var)"
-          );
+          throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
         const sessionID = await client.getSessionID();
 
         // Default to today's date in ISO format when not specified
-        const transactionDate = date ?? new Date().toISOString().split("T")[0];
+        const transactionDate = date ?? new Date().toISOString().split('T')[0];
 
         const result = await client.callSoap({
-          service: "Accounting.asmx",
-          method: "GLAccountBalance",
+          service: 'Accounting.asmx',
+          method: 'GLAccountBalance',
           params: {
             sessionID,
             administrationID: adminId,
@@ -77,7 +67,7 @@ export function registerAccountingTools(
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify(
                 {
                   success: true,
@@ -86,7 +76,7 @@ export function registerAccountingTools(
                   accounts,
                 },
                 null,
-                2
+                2,
               ),
             },
           ],
@@ -96,14 +86,14 @@ export function registerAccountingTools(
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify({ success: false, error: message }, null, 2),
             },
           ],
           isError: true,
         };
       }
-    }
+    },
   );
 }
 
@@ -114,8 +104,8 @@ function normalizeGLAccounts(result: unknown): unknown[] {
 
   const rec = result as Record<string, unknown>;
 
-  const wrappers = ["GLAccounts", "Accounts", "Rows"];
-  const itemTags = ["GLAccount", "Account", "Row"];
+  const wrappers = ['GLAccounts', 'Accounts', 'Rows'];
+  const itemTags = ['GLAccount', 'Account', 'Row'];
 
   for (const wrapper of wrappers) {
     const c = rec[wrapper];

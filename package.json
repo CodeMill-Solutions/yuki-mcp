@@ -2,6 +2,14 @@
   "name": "@codemill-solutions/yuki-mcp",
   "version": "1.0.0",
   "description": "MCP server for the Yuki accounting SOAP API",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CodeMill-Solutions/yuki-mcp.git"
+  },
+  "homepage": "https://github.com/CodeMill-Solutions/yuki-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/CodeMill-Solutions/yuki-mcp/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

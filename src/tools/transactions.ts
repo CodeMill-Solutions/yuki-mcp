@@ -1,6 +1,6 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { YukiClient, XmlValue, escapeXml } from "../yuki-client.js";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import { YukiClient, XmlValue, escapeXml } from '../yuki-client.js';
 
 /**
  * Register tools for retrieving GL account transactions from Yuki.
@@ -12,10 +12,7 @@ import { YukiClient, XmlValue, escapeXml } from "../yuki-client.js";
  * Method:       GLAccountTransactions(sessionID, administrationID, GLAccountCode,
  *                                     StartDate, EndDate)
  */
-export function registerTransactionTools(
-  server: McpServer,
-  client: YukiClient
-): void {
+export function registerTransactionTools(server: McpServer, client: YukiClient): void {
   /**
    * get_transactions
    *
@@ -33,45 +30,39 @@ export function registerTransactionTools(
    * Rate cost: 1 request.
    */
   server.registerTool(
-    "get_transactions",
+    'get_transactions',
     {
       description:
-        "Retrieve all journal entries for a specific GL account code within a date range. " +
-        "Use this for bank transactions (find the bank GL code with get_gl_accounts first). " +
-        "Returns date, description, debit/credit amounts, and counterpart GL account.",
+        'Retrieve all journal entries for a specific GL account code within a date range. ' +
+        'Use this for bank transactions (find the bank GL code with get_gl_accounts first). ' +
+        'Returns date, description, debit/credit amounts, and counterpart GL account.',
       inputSchema: {
         glAccountCode: z
           .string()
           .describe(
             "GL account code to retrieve transactions for (e.g. '1200' for a bank account). " +
-              "Use get_gl_accounts to find the right code."
+              'Use get_gl_accounts to find the right code.',
           ),
-        startDate: z
-          .string()
-          .describe("Start date in YYYY-MM-DD format (inclusive)"),
-        endDate: z
-          .string()
-          .describe("End date in YYYY-MM-DD format (inclusive)"),
+        startDate: z.string().describe('Start date in YYYY-MM-DD format (inclusive)'),
+        endDate: z.string().describe('End date in YYYY-MM-DD format (inclusive)'),
         administrationId: z
           .string()
           .optional()
-          .describe("Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var."),
+          .describe('Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
       },
     },
     async ({ glAccountCode, startDate, endDate, administrationId }) => {
       try {
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) {
-          throw new Error(
-            "administrationId is required (or set YUKI_DOMAIN_ID env var)"
-          );
+          throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
         const sessionID = await client.getSessionID();
 
         const result = await client.callSoap({
-          service: "Accounting.asmx",
-          method: "GLAccountTransactions",
+          service: 'Accounting.asmx',
+          method: 'GLAccountTransactions',
           params: {
             sessionID,
             administrationID: adminId,
@@ -86,7 +77,7 @@ export function registerTransactionTools(
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify(
                 {
                   success: true,
@@ -96,7 +87,7 @@ export function registerTransactionTools(
                   transactions,
                 },
                 null,
-                2
+                2,
               ),
             },
           ],
@@ -106,14 +97,14 @@ export function registerTransactionTools(
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify({ success: false, error: message }, null, 2),
             },
           ],
           isError: true,
         };
       }
-    }
+    },
   );
 
   /**
@@ -128,19 +119,17 @@ export function registerTransactionTools(
    * Rate cost: 1 request.
    */
   server.registerTool(
-    "get_transaction_details",
+    'get_transaction_details',
     {
       description:
-        "Check whether an outstanding item (invoice) with a given reference still exists in Yuki " +
-        "and retrieve its current open amount and status.",
+        'Check whether an outstanding item (invoice) with a given reference still exists in Yuki ' +
+        'and retrieve its current open amount and status.',
       inputSchema: {
-        reference: z
-          .string()
-          .describe("Invoice reference number as shown in Yuki (e.g. '2024-0042')"),
+        reference: z.string().describe("Invoice reference number as shown in Yuki (e.g. '2024-0042')"),
         administrationId: z
           .string()
           .optional()
-          .describe("Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var."),
+          .describe('Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
       },
     },
     async ({ reference, administrationId }) => {
@@ -150,8 +139,8 @@ export function registerTransactionTools(
 
         // CheckOutstandingItemAdmin checks a specific reference within an administration
         const result = await client.callSoap({
-          service: "Accounting.asmx",
-          method: "CheckOutstandingItemAdmin",
+          service: 'Accounting.asmx',
+          method: 'CheckOutstandingItemAdmin',
           params: {
             sessionID,
             adminID: adminId,
@@ -162,12 +151,8 @@ export function registerTransactionTools(
         return {
           content: [
             {
-              type: "text" as const,
-              text: JSON.stringify(
-                { success: true, reference, result },
-                null,
-                2
-              ),
+              type: 'text' as const,
+              text: JSON.stringify({ success: true, reference, result }, null, 2),
             },
           ],
         };
@@ -176,14 +161,14 @@ export function registerTransactionTools(
         return {
           content: [
             {
-              type: "text" as const,
+              type: 'text' as const,
               text: JSON.stringify({ success: false, error: message }, null, 2),
             },
           ],
           isError: true,
         };
       }
-    }
+    },
   );
 }
 
@@ -191,10 +176,7 @@ export function registerTransactionTools(
  * Register the process_journal write tool.
  * Call this from registerTransactionTools — same server/client instance.
  */
-export function registerJournalWriteTools(
-  server: McpServer,
-  client: YukiClient
-): void {
+export function registerJournalWriteTools(server: McpServer, client: YukiClient): void {
   /**
    * process_journal
    *
@@ -217,50 +199,63 @@ export function registerJournalWriteTools(
    * Rate cost: 1 request.
    */
   server.registerTool(
-    "process_journal",
+    'process_journal',
     {
       description:
-        "Post a general journal entry (memoriaal) in Yuki for bank reconciliation, corrections, or custom bookings. " +
-        "IMPORTANT: all entry amounts must sum to exactly 0 (positive = debit, negative = credit). " +
-        "Yuki will reject the entry if this rule is violated.",
+        'Post a general journal entry (memoriaal) in Yuki for bank reconciliation, corrections, or custom bookings. ' +
+        'IMPORTANT: all entry amounts must sum to exactly 0 (positive = debit, negative = credit). ' +
+        'Yuki will reject the entry if this rule is violated.',
       inputSchema: {
-        subject: z.string().describe("Document subject / description shown in Yuki (e.g. 'Bank reconciliation April 2024')"),
-        journalType: z.enum(["GeneralJournal", "EndOfYearCorrection", "FiscalCorrection"])
-          .optional().default("GeneralJournal")
-          .describe("Journal type. Year-end and fiscal corrections must have entry dates on the last day of the financial year."),
-        entries: z.array(z.object({
-          entryDate: z.string().describe("Entry date in YYYY-MM-DD format"),
-          glAccount: z.string().describe("GL account code (e.g. '1200' for bank, '1300' for debtors)"),
-          amount: z.number().describe("Amount: positive = debit, negative = credit. All entries must sum to 0."),
-          description: z.string().optional().describe("Line description (max 256 characters)"),
-          contactCode: z.string().optional().describe("Yuki contact code to link this entry to a relation"),
-          contactName: z.string().optional().describe("Contact name (used if contactCode is not provided)"),
-        })).min(2).describe("Journal entries — must contain at least 2 lines and sum to zero"),
-        administrationId: z.string().optional().describe("Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var."),
+        subject: z
+          .string()
+          .describe("Document subject / description shown in Yuki (e.g. 'Bank reconciliation April 2024')"),
+        journalType: z
+          .enum(['GeneralJournal', 'EndOfYearCorrection', 'FiscalCorrection'])
+          .optional()
+          .default('GeneralJournal')
+          .describe(
+            'Journal type. Year-end and fiscal corrections must have entry dates on the last day of the financial year.',
+          ),
+        entries: z
+          .array(
+            z.object({
+              entryDate: z.string().describe('Entry date in YYYY-MM-DD format'),
+              glAccount: z.string().describe("GL account code (e.g. '1200' for bank, '1300' for debtors)"),
+              amount: z.number().describe('Amount: positive = debit, negative = credit. All entries must sum to 0.'),
+              description: z.string().optional().describe('Line description (max 256 characters)'),
+              contactCode: z.string().optional().describe('Yuki contact code to link this entry to a relation'),
+              contactName: z.string().optional().describe('Contact name (used if contactCode is not provided)'),
+            }),
+          )
+          .min(2)
+          .describe('Journal entries — must contain at least 2 lines and sum to zero'),
+        administrationId: z
+          .string()
+          .optional()
+          .describe('Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
       },
     },
     async ({ subject, journalType, entries, administrationId }) => {
       try {
         const adminId = administrationId ?? client.defaultDomainId;
-        if (!adminId) throw new Error("administrationId is required (or set YUKI_DOMAIN_ID env var)");
+        if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
         // Validate balance before sending — save a request on obvious errors
         const total = entries.reduce((sum, e) => sum + e.amount, 0);
         if (Math.abs(total) > 0.001) {
           throw new Error(
             `Journal entries do not balance: sum is ${total.toFixed(2)} (must be 0.00). ` +
-              `Check your debit/credit amounts.`
+              `Check your debit/credit amounts.`,
           );
         }
 
         const sessionID = await client.getSessionID();
-        const xmlDoc = buildJournalXml({ administrationId: adminId, subject,
-          journalType, entries });
+        const xmlDoc = buildJournalXml({ administrationId: adminId, subject, journalType, entries });
 
         // Accounting.asmx uses sessionID / administrationID (uppercase D)
         const result = await client.callSoap({
-          service: "Accounting.asmx",
-          method: "ProcessJournal",
+          service: 'Accounting.asmx',
+          method: 'ProcessJournal',
           params: {
             sessionID,
             administrationID: adminId,
@@ -269,18 +264,21 @@ export function registerJournalWriteTools(
         });
 
         return {
-          content: [{ type: "text" as const,
-            text: JSON.stringify({ success: true, subject, entryCount: entries.length, result }, null, 2) }],
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ success: true, subject, entryCount: entries.length, result }, null, 2),
+            },
+          ],
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return {
-          content: [{ type: "text" as const,
-            text: JSON.stringify({ success: false, error: message }, null, 2) }],
+          content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: message }, null, 2) }],
           isError: true,
         };
       }
-    }
+    },
   );
 }
 
@@ -302,22 +300,26 @@ function buildJournalXml(args: {
 }): string {
   const x = escapeXml;
 
-  const entriesXml = args.entries.map(e => `
+  const entriesXml = args.entries
+    .map(
+      (e) => `
     <JournalEntry>
       <EntryDate>${x(e.entryDate)}</EntryDate>
       <GLAccount>${x(e.glAccount)}</GLAccount>
       <Amount>${e.amount}</Amount>
-      ${e.description ? `<Description>${x(e.description.slice(0, 256))}</Description>` : ""}
-      ${e.contactCode ? `<ContactCode>${x(e.contactCode)}</ContactCode>` : ""}
-      ${!e.contactCode && e.contactName ? `<ContactName>${x(e.contactName)}</ContactName>` : ""}
-    </JournalEntry>`).join("");
+      ${e.description ? `<Description>${x(e.description.slice(0, 256))}</Description>` : ''}
+      ${e.contactCode ? `<ContactCode>${x(e.contactCode)}</ContactCode>` : ''}
+      ${!e.contactCode && e.contactName ? `<ContactName>${x(e.contactName)}</ContactName>` : ''}
+    </JournalEntry>`,
+    )
+    .join('');
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <Journal xmlns="urn:xmlns:http://www.theyukicompany.com:journal"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AdministrationID>${x(args.administrationId)}</AdministrationID>
   <DocumentSubject>${x(args.subject)}</DocumentSubject>
-  <JournalType>${x(args.journalType ?? "GeneralJournal")}</JournalType>
+  <JournalType>${x(args.journalType ?? 'GeneralJournal')}</JournalType>
   ${entriesXml}
 </Journal>`;
 }
@@ -329,8 +331,8 @@ function normalizeTransactions(result: unknown): unknown[] {
 
   const rec = result as Record<string, unknown>;
 
-  const wrappers = ["Transactions", "GLTransactions", "Rows"];
-  const itemTags = ["Transaction", "GLTransaction", "Row"];
+  const wrappers = ['Transactions', 'GLTransactions', 'Rows'];
+  const itemTags = ['Transaction', 'GLTransaction', 'Row'];
 
   for (const wrapper of wrappers) {
     const c = rec[wrapper];

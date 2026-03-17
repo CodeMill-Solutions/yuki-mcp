@@ -1,25 +1,25 @@
-import axios from "axios";
-import { XMLParser } from "fast-xml-parser";
+import axios from 'axios';
+import { XMLParser } from 'fast-xml-parser';
 
 // Confirmed via WSDL inspection of api.yukiworks.nl
-const YUKI_BASE_URL = "https://api.yukiworks.nl/ws/";
-const YUKI_NAMESPACE = "http://www.theyukicompany.com/";
+const YUKI_BASE_URL = 'https://api.yukiworks.nl/ws/';
+const YUKI_NAMESPACE = 'http://www.theyukicompany.com/';
 
 // Tags that should always be treated as arrays even when there is only one element
 const ALWAYS_ARRAY_TAGS = new Set([
-  "Administration",
-  "SalesInvoice",
-  "PurchaseInvoice",
-  "Contact",
-  "Relation",
-  "Transaction",
-  "BankTransaction",
-  "GLAccount",
-  "DebtorItem",
-  "CreditorItem",
-  "InvoiceLine",
-  "Line",
-  "Row",
+  'Administration',
+  'SalesInvoice',
+  'PurchaseInvoice',
+  'Contact',
+  'Relation',
+  'Transaction',
+  'BankTransaction',
+  'GLAccount',
+  'DebtorItem',
+  'CreditorItem',
+  'InvoiceLine',
+  'Line',
+  'Row',
 ]);
 
 /**
@@ -36,12 +36,7 @@ export class XmlValue {
   constructor(readonly xml: string) {}
 }
 
-export type SoapParamValue =
-  | string
-  | number
-  | boolean
-  | XmlValue
-  | undefined;
+export type SoapParamValue = string | number | boolean | XmlValue | undefined;
 
 export interface SoapCallOptions {
   /** Filename of the ASMX service, e.g. "Accounting.asmx" */
@@ -65,7 +60,7 @@ export class YukiClient {
     this.domainId = domainId;
     this.parser = new XMLParser({
       ignoreAttributes: false,
-      attributeNamePrefix: "@_",
+      attributeNamePrefix: '@_',
       // Strip namespace prefixes so we can address tags by their local name
       removeNSPrefix: true,
       parseAttributeValue: true,
@@ -90,16 +85,14 @@ export class YukiClient {
     if (this.cachedSessionID) return this.cachedSessionID;
 
     const result = await this.callSoap({
-      service: "Accounting.asmx",
-      method: "Authenticate",
+      service: 'Accounting.asmx',
+      method: 'Authenticate',
       params: { accessKey: this.apiKey },
     });
 
     const sessionID = extractString(result);
     if (!sessionID) {
-      throw new Error(
-        "Authenticate returned an empty session ID. Check your YUKI_API_KEY."
-      );
+      throw new Error('Authenticate returned an empty session ID. Check your YUKI_API_KEY.');
     }
 
     this.cachedSessionID = sessionID;
@@ -140,14 +133,14 @@ export class YukiClient {
    */
   private serializeParams(params: Record<string, SoapParamValue>): string {
     return Object.entries(params)
-      .filter(([, v]) => v !== undefined && v !== "")
+      .filter(([, v]) => v !== undefined && v !== '')
       .map(([key, v]) => {
         if (v instanceof XmlValue) {
           return `<${key}>${v.xml}</${key}>`;
         }
         return `<${key}>${escapeXml(String(v))}</${key}>`;
       })
-      .join("\n      ");
+      .join('\n      ');
   }
 
   /**
@@ -169,11 +162,11 @@ export class YukiClient {
     try {
       const response = await axios.post<string>(url, soapBody, {
         headers: {
-          "Content-Type": "text/xml; charset=utf-8",
+          'Content-Type': 'text/xml; charset=utf-8',
           SOAPAction: `"${soapAction}"`,
         },
         timeout: 30_000,
-        responseType: "text",
+        responseType: 'text',
       });
       responseData = response.data;
     } catch (err) {
@@ -181,9 +174,7 @@ export class YukiClient {
         if (err.response?.data) {
           const fault = this.extractSoapFault(err.response.data as string);
           if (fault) throw new Error(`SOAP Fault: ${fault}`);
-          throw new Error(
-            `HTTP ${err.response.status} ${err.response.statusText} from ${url}`
-          );
+          throw new Error(`HTTP ${err.response.status} ${err.response.statusText} from ${url}`);
         }
         throw new Error(`Network error calling Yuki API: ${err.message}`);
       }
@@ -191,17 +182,15 @@ export class YukiClient {
     }
 
     const parsed = this.parser.parse(responseData) as Record<string, unknown>;
-    const body = (
-      parsed?.Envelope as Record<string, unknown> | undefined
-    )?.Body as Record<string, unknown> | undefined;
+    const body = (parsed?.Envelope as Record<string, unknown> | undefined)?.Body as Record<string, unknown> | undefined;
 
     if (!body) {
-      throw new Error("Invalid SOAP response: missing <soap:Body>");
+      throw new Error('Invalid SOAP response: missing <soap:Body>');
     }
 
-    if (body["Fault"]) {
+    if (body['Fault']) {
       const fault = this.extractSoapFault(responseData);
-      throw new Error(`SOAP Fault: ${fault ?? "Unknown SOAP fault"}`);
+      throw new Error(`SOAP Fault: ${fault ?? 'Unknown SOAP fault'}`);
     }
 
     // Unwrap <{method}Response><{method}Result> automatically
@@ -220,17 +209,17 @@ export class YukiClient {
   private extractSoapFault(xml: string): string | null {
     try {
       const parsed = this.parser.parse(xml) as Record<string, unknown>;
-      const body = (
-        parsed?.Envelope as Record<string, unknown> | undefined
-      )?.Body as Record<string, unknown> | undefined;
+      const body = (parsed?.Envelope as Record<string, unknown> | undefined)?.Body as
+        | Record<string, unknown>
+        | undefined;
       const fault = body?.Fault as Record<string, unknown> | undefined;
       if (!fault) return null;
 
       // SOAP 1.1 faultstring
-      if (typeof fault["faultstring"] === "string") return fault["faultstring"];
+      if (typeof fault['faultstring'] === 'string') return fault['faultstring'];
       // SOAP 1.2 Reason/Text
-      const text = (fault["Reason"] as Record<string, unknown> | undefined)?.Text;
-      if (typeof text === "string") return text;
+      const text = (fault['Reason'] as Record<string, unknown> | undefined)?.Text;
+      if (typeof text === 'string') return text;
 
       return JSON.stringify(fault);
     } catch {
@@ -247,21 +236,21 @@ export class YukiClient {
  */
 export function escapeXml(str: string): string {
   return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 /** Extract a plain string value from a parsed SOAP result (handles wrapping objects). */
 function extractString(value: unknown): string | null {
-  if (typeof value === "string") return value.trim() || null;
-  if (typeof value === "number") return String(value);
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof value === 'number') return String(value);
   // fast-xml-parser sometimes wraps a text node in { "#text": "..." }
-  if (value && typeof value === "object") {
-    const text = (value as Record<string, unknown>)["#text"];
-    if (typeof text === "string") return text.trim() || null;
+  if (value && typeof value === 'object') {
+    const text = (value as Record<string, unknown>)['#text'];
+    if (typeof text === 'string') return text.trim() || null;
   }
   return null;
 }
