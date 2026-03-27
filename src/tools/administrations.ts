@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import { YukiClient } from '../yuki-client.js';
 
 /**
@@ -59,6 +60,58 @@ export function registerAdministrationTools(server: McpServer, client: YukiClien
               text: JSON.stringify({ success: false, error: message }, null, 2),
             },
           ],
+          isError: true,
+        };
+      }
+    },
+  );
+}
+
+/**
+ * get_administration_id
+ *
+ * Look up an administration's GUID by its exact name.
+ * Useful when you know the administration name from the Yuki UI but don't
+ * have the GUID — avoids having to call get_administrations and scan the list.
+ *
+ * Rate cost: 1 request.
+ */
+export function registerAdministrationLookupTools(server: McpServer, client: YukiClient): void {
+  server.registerTool(
+    'get_administration_id',
+    {
+      description:
+        'Look up the GUID of a Yuki administration by its exact name. ' +
+        'Use this to resolve an administration name to the ID required by other tools. ' +
+        'For a full list of administrations and IDs use get_administrations.',
+      inputSchema: {
+        administrationName: z
+          .string()
+          .describe('Exact name of the administration as shown in Yuki (case-sensitive).'),
+      },
+    },
+    async ({ administrationName }) => {
+      try {
+        const sessionID = await client.getSessionID();
+
+        const result = await client.callSoap({
+          service: 'Accounting.asmx',
+          method: 'AdministrationID',
+          params: { sessionID, administrationName },
+        });
+
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ success: true, administrationName, administrationId: result }, null, 2),
+            },
+          ],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: message }, null, 2) }],
           isError: true,
         };
       }

@@ -4,11 +4,12 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { YukiClient } from './yuki-client.js';
 
 // Read tools
-import { registerAdministrationTools } from './tools/administrations.js';
+import { registerAdministrationTools, registerAdministrationLookupTools } from './tools/administrations.js';
 import { registerRelationTools } from './tools/relations.js';
 import { registerInvoiceTools } from './tools/invoices.js';
 import { registerTransactionTools } from './tools/transactions.js';
-import { registerAccountingTools } from './tools/accounting.js';
+import { registerAccountingTools, registerAccountingExtendedTools } from './tools/accounting.js';
+import { registerAccountingInfoTools } from './tools/accounting-info.js';
 
 // Write tools
 import { registerInvoiceWriteTools } from './tools/invoices.js';
@@ -39,15 +40,18 @@ const yukiClient = new YukiClient(apiKey, domainId);
 
 const server = new McpServer({
   name: 'yuki-mcp',
-  version: '1.0.0',
+  version: '1.2.0',
 });
 
 // ── Read tools ────────────────────────────────────────────────────────────────
 registerAdministrationTools(server, yukiClient);
+registerAdministrationLookupTools(server, yukiClient);
 registerRelationTools(server, yukiClient);
 registerInvoiceTools(server, yukiClient);
 registerTransactionTools(server, yukiClient);
 registerAccountingTools(server, yukiClient);
+registerAccountingExtendedTools(server, yukiClient);
+registerAccountingInfoTools(server, yukiClient);
 
 // ── Write tools ───────────────────────────────────────────────────────────────
 registerInvoiceWriteTools(server, yukiClient);
@@ -66,6 +70,6 @@ await server.connect(transport);
 
 // Log startup info to stderr only (stdout is reserved for JSON-RPC)
 process.stderr.write(
-  `[yuki-mcp] Server started — 16 tools registered. ` +
+  `[yuki-mcp] Server started — 29 tools registered. ` +
     `Domain ID: ${domainId || '(none — run get_administrations to discover)'}\n`,
 );

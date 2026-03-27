@@ -7,19 +7,39 @@ const YUKI_NAMESPACE = 'http://www.theyukicompany.com/';
 
 // Tags that should always be treated as arrays even when there is only one element
 const ALWAYS_ARRAY_TAGS = new Set([
+  // Administrations
   'Administration',
+  // Invoices
   'SalesInvoice',
   'PurchaseInvoice',
-  'Contact',
-  'Relation',
-  'Transaction',
-  'BankTransaction',
-  'GLAccount',
-  'DebtorItem',
-  'CreditorItem',
   'InvoiceLine',
   'Line',
+  // Relations / contacts
+  'Contact',
+  'Relation',
+  // Transactions (Accounting.asmx)
+  'Transaction',
+  'BankTransaction',
   'Row',
+  // Transactions (AccountingInfo.asmx)
+  'TransactionInfo',
+  // GL accounts
+  'GLAccount',
+  'Account',
+  // Debtor / creditor outstanding items
+  'DebtorItem',
+  'CreditorItem',
+  // Fiscal periods (AccountingInfo.asmx)
+  'Period',
+  'AdministrationPeriod',
+  // Opening balances (AccountingInfo.asmx)
+  'StartBalance',
+  'AccountStartBalance',
+  // Archive documents
+  'Document',
+  'SearchResult',
+  'CostCategory',
+  'Folder',
 ]);
 
 /**

@@ -1,6 +1,6 @@
 {
   "name": "@codemill-solutions/yuki-mcp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "MCP server for the Yuki accounting SOAP API",
   "repository": {
     "type": "git",
