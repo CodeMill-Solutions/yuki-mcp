@@ -54,7 +54,7 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'AccountingInfo.asmx',
@@ -119,7 +119,7 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'AccountingInfo.asmx',
@@ -194,7 +194,7 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'AccountingInfo.asmx',
@@ -276,7 +276,7 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'AccountingInfo.asmx',
@@ -355,7 +355,7 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'AccountingInfo.asmx',

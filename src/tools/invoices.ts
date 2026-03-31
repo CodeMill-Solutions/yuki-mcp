@@ -69,7 +69,7 @@ export function registerInvoiceTools(server: McpServer, client: YukiClient): voi
           throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         let result: unknown;
 
@@ -183,7 +183,7 @@ export function registerInvoiceTools(server: McpServer, client: YukiClient): voi
           throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         let result: unknown;
 
@@ -360,7 +360,7 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionId = await client.getSessionID();
+        const sessionId = await client.getSessionID(adminId);
         const xmlDoc = buildSalesInvoiceXml({
           reference,
           subject,
@@ -492,7 +492,7 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionId = await client.getSessionID();
+        const sessionId = await client.getSessionID(adminId);
         const xmlDoc = buildPurchaseInvoiceXml({
           reference,
           date,

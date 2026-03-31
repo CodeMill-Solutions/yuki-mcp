@@ -48,7 +48,7 @@ export function registerAccountingTools(server: McpServer, client: YukiClient): 
           throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         // Default to today's date in ISO format when not specified
         const transactionDate = date ?? new Date().toISOString().split('T')[0];
@@ -141,7 +141,7 @@ export function registerAccountingExtendedTools(server: McpServer, client: YukiC
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
         const transactionDate = date ?? new Date().toISOString().split('T')[0];
 
         const result = await client.callSoap({
@@ -212,7 +212,7 @@ export function registerAccountingExtendedTools(server: McpServer, client: YukiC
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
         const method = fiscal ? 'NetRevenueFiscal' : 'NetRevenue';
 
         const result = await client.callSoap({

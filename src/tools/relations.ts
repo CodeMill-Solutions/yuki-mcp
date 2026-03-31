@@ -84,7 +84,7 @@ export function registerRelationTools(server: McpServer, client: YukiClient): vo
           throw new Error('domainId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(domain);
 
         // Note: Contact.asmx uses 'domainID', not 'administrationID'
         const result = await client.callSoap({
@@ -220,7 +220,7 @@ export function registerContactWriteTools(server: McpServer, client: YukiClient)
         const domain = domainId ?? client.defaultDomainId;
         if (!domain) throw new Error('domainId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(domain);
         const xmlDoc = buildContactXml({
           contactCode,
           fullName,

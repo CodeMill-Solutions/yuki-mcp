@@ -72,12 +72,22 @@ export class YukiClient {
   private readonly domainId: string;
   private readonly parser: XMLParser;
 
-  /** Cached session ID obtained from Authenticate — reused across calls. */
-  private cachedSessionID: string | null = null;
+  /**
+   * Map from administrationId → apiKey, loaded from the JSON keys file at startup.
+   * Enables per-administration authentication when querying multiple companies.
+   */
+  private readonly apiKeyMap: Map<string, string>;
 
-  constructor(apiKey: string, domainId: string) {
+  /**
+   * Session cache keyed by apiKey. Each distinct API key authenticates once and
+   * reuses the same session ID for subsequent calls.
+   */
+  private readonly sessionCache = new Map<string, string>();
+
+  constructor(apiKey: string, domainId: string, apiKeyMap?: Map<string, string>) {
     this.apiKey = apiKey;
     this.domainId = domainId;
+    this.apiKeyMap = apiKeyMap ?? new Map();
     this.parser = new XMLParser({
       ignoreAttributes: false,
       attributeNamePrefix: '@_',
@@ -93,40 +103,69 @@ export class YukiClient {
   /**
    * Return a valid Yuki session ID, authenticating if needed.
    *
-   * Yuki uses a two-step auth flow:
-   *   1. POST Authenticate(accessKey) → returns a temporary sessionID string
-   *   2. Pass that sessionID in all subsequent SOAP calls
+   * When `adminId` is provided and exists in the API key map, the corresponding
+   * per-administration API key is used for authentication. Otherwise falls back
+   * to the default `YUKI_API_KEY`.
    *
-   * The session ID is cached for the lifetime of this process.
+   * Session IDs are cached per API key for the lifetime of this process.
    * On session expiry (SOAP fault) callers should catch the error, reset
    * the cache via invalidateSession(), and retry.
    */
-  async getSessionID(): Promise<string> {
-    if (this.cachedSessionID) return this.cachedSessionID;
+  async getSessionID(adminId?: string): Promise<string> {
+    // Resolve which API key to use for this administration
+    const apiKey = (adminId && this.apiKeyMap.get(adminId)) ?? this.apiKey;
+
+    if (!apiKey) {
+      throw new Error(
+        adminId
+          ? `No API key found for administration ${adminId}. ` +
+            'Run a full sync from the dashboard or set YUKI_API_KEY.'
+          : 'No API key configured. Set YUKI_API_KEY or run a full sync from the dashboard.',
+      );
+    }
+
+    // Return cached session if available
+    const cached = this.sessionCache.get(apiKey);
+    if (cached) return cached;
 
     const result = await this.callSoap({
       service: 'Accounting.asmx',
       method: 'Authenticate',
-      params: { accessKey: this.apiKey },
+      params: { accessKey: apiKey },
     });
 
     const sessionID = extractString(result);
     if (!sessionID) {
-      throw new Error('Authenticate returned an empty session ID. Check your YUKI_API_KEY.');
+      throw new Error('Authenticate returned an empty session ID. Check your API key.');
     }
 
-    this.cachedSessionID = sessionID;
+    this.sessionCache.set(apiKey, sessionID);
     return sessionID;
   }
 
-  /** Clear the cached session so the next call re-authenticates. */
-  invalidateSession(): void {
-    this.cachedSessionID = null;
+  /**
+   * Clear the cached session(s).
+   *
+   * When `adminId` is provided, only the session for that administration's key
+   * is cleared. Without arguments all cached sessions are cleared.
+   */
+  invalidateSession(adminId?: string): void {
+    if (adminId) {
+      const apiKey = this.apiKeyMap.get(adminId) ?? this.apiKey;
+      if (apiKey) this.sessionCache.delete(apiKey);
+    } else {
+      this.sessionCache.clear();
+    }
   }
 
   /** The default domain / administration ID from the environment. */
   get defaultDomainId(): string {
     return this.domainId;
+  }
+
+  /** Number of administration-specific API keys loaded from the keys file. */
+  get apiKeyCount(): number {
+    return this.apiKeyMap.size;
   }
 
   // ── Core SOAP plumbing ──────────────────────────────────────────────────────

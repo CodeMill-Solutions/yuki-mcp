@@ -86,7 +86,7 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
           throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         // Archive.asmx uses sessionID / administrationID (uppercase D)
         const result = await client.callSoap({
@@ -223,7 +223,7 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
         const resolvedFileName = fileName ?? basename(filePath);
         const dataBase64 = fileBuffer.toString('base64');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'Archive.asmx',
@@ -520,7 +520,7 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'Archive.asmx',
@@ -629,7 +629,7 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'Archive.asmx',
@@ -683,7 +683,7 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
           throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'Archive.asmx',

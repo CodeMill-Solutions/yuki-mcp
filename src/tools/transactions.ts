@@ -58,7 +58,7 @@ export function registerTransactionTools(server: McpServer, client: YukiClient):
           throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'Accounting.asmx',
@@ -135,7 +135,7 @@ export function registerTransactionTools(server: McpServer, client: YukiClient):
     async ({ reference, administrationId }) => {
       try {
         const adminId = administrationId ?? client.defaultDomainId;
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         // CheckOutstandingItemAdmin checks a specific reference within an administration
         const result = await client.callSoap({
@@ -249,7 +249,7 @@ export function registerJournalWriteTools(server: McpServer, client: YukiClient)
           );
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
         const xmlDoc = buildJournalXml({ administrationId: adminId, subject, journalType, entries });
 
         // Accounting.asmx uses sessionID / administrationID (uppercase D)

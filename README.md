@@ -89,6 +89,39 @@ Add to your MCP host configuration (e.g. `claude_desktop_config.json`):
 
 ---
 
+## Multi-administration support
+
+If you manage **multiple Yuki administrations** (each with its own API key), you can supply a JSON file that maps every `administrationId` to its corresponding API key. The server then authenticates per administration automatically — no single shared key required.
+
+### Keys file format
+
+```json
+{
+  "a1b2c3d4-0000-0000-0000-000000000001": "api-key-for-admin-1",
+  "a1b2c3d4-0000-0000-0000-000000000002": "api-key-for-admin-2"
+}
+```
+
+### Path resolution (first match wins)
+
+| Priority | Path |
+|----------|------|
+| 1 | `YUKI_API_KEYS_FILE` environment variable (explicit path) |
+| 2 | `~/.yuki/api-keys.json` (default user-level location) |
+| 3 | `./api-keys.json` (local fallback for development) |
+
+### Environment variable
+
+```env
+YUKI_API_KEYS_FILE=/path/to/your/api-keys.json
+```
+
+When a keys file is present, `YUKI_API_KEY` becomes optional — the file keys are used for all administration-specific tool calls, and `YUKI_API_KEY` (if set) serves as the fallback for tools that don't target a specific administration (e.g. `get_administrations`).
+
+If neither `YUKI_API_KEY` nor a keys file is found at startup, the server logs a warning but continues running — tools will return an error when called.
+
+---
+
 ## Available tools (29)
 
 ### Administrations
@@ -208,8 +241,8 @@ Available scenarios: `get-administrations`, `search-relations`, `outstanding-inv
 
 ```
 src/
-├── index.ts                  # Entry point — loads env, registers tools, starts stdio transport
-├── yuki-client.ts            # SOAP client: envelope builder, axios HTTP, fast-xml-parser, XmlValue
+├── index.ts                  # Entry point — loads env + keys file, registers tools, starts stdio transport
+├── yuki-client.ts            # SOAP client: per-key session cache, envelope builder, axios HTTP, fast-xml-parser
 └── tools/
     ├── administrations.ts    # get_administrations, get_administration_id
     ├── relations.ts          # search_relations, upsert_contact
@@ -236,7 +269,7 @@ Yuki uses a two-step authentication pattern:
 1. `Authenticate(accessKey)` → returns a temporary `sessionID`
 2. All subsequent calls include that `sessionID`
 
-`YukiClient.getSessionID()` handles this transparently and caches the session for the lifetime of the process.
+`YukiClient.getSessionID(adminId?)` handles this transparently. When called with an `administrationId`, it resolves the matching API key from the loaded keys map. Session IDs are cached per API key for the lifetime of the process — `Authenticate` is only called once per key, not once per tool call.
 
 > **Note:** Parameter casing differs across Yuki's services — `sessionId` (lowercase d) on `Sales.asmx` and `Purchase.asmx`; `sessionID` (uppercase D) on `Accounting.asmx`, `AccountingInfo.asmx`, `Contact.asmx`, and `Archive.asmx`. This is handled per-tool.
 
@@ -248,7 +281,7 @@ Write tools (`process_sales_invoice`, `process_purchase_invoice`, `process_journ
 
 ## Rate limits
 
-Yuki enforces **1,000 API requests per day** (upgradeable to 5,000–10,000). Each tool call is 1 request. The session ID is cached so `Authenticate` is only called once per server process, not once per tool call.
+Yuki enforces **1,000 API requests per day** (upgradeable to 5,000–10,000). Each tool call is 1 request. Session IDs are cached so `Authenticate` is only called once per API key per server process, not once per tool call.
 
 Design agent workflows to fetch broad lists once and reference them from the agent's context window rather than re-fetching on every step.
 
@@ -259,6 +292,7 @@ Design agent workflows to fetch broad lists once and reference them from the age
 | Error | Likely cause |
 |-------|-------------|
 | `SOAP Fault: Authentication failed` | `YUKI_API_KEY` is incorrect or API access is not enabled in Yuki Settings |
+| `No API key found for administration …` | The `administrationId` passed to the tool is not in the loaded keys file — check `YUKI_API_KEYS_FILE` |
 | `SOAP Fault: Administration not found` | Wrong `administrationId` — run `get_administrations` to get the correct GUID |
 | `Journal entries do not balance` | Amounts in `process_journal` don't sum to 0 — check debit/credit signs |
 | `HTTP 500 from api.yukiworks.nl` | Usually a wrong XML namespace or malformed `xmlDoc` — check the WSDL at `https://api.yukiworks.nl/ws/{Service}.asmx?wsdl` |
@@ -280,9 +314,9 @@ Our services include:
 
 `yuki-mcp` is one of our open-source integrations, making Yuki's accounting platform accessible to AI agents through the Model Context Protocol.
 
-📧 [info@codemill.dev](mailto:info@codemill.dev)  
-🌐 [codemill.dev](https://codemill.dev/en/)  
-💼 [LinkedIn](https://www.linkedin.com/company/codemill-solutions/)  
+📧 [info@codemill.dev](mailto:info@codemill.dev)
+🌐 [codemill.dev](https://codemill.dev/en/)
+💼 [LinkedIn](https://www.linkedin.com/company/codemill-solutions/)
 🐙 [GitHub](https://github.com/CodeMill-Solutions)
 
 ---

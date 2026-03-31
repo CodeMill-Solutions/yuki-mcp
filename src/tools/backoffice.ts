@@ -42,7 +42,7 @@ export function registerBackofficeTools(server: McpServer, client: YukiClient): 
           throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         // Backoffice.asmx uses sessionID / administrationID (uppercase D)
         const result = await client.callSoap({
@@ -107,7 +107,7 @@ export function registerBackofficeTools(server: McpServer, client: YukiClient): 
           throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
         }
 
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(adminId);
 
         const result = await client.callSoap({
           service: 'Backoffice.asmx',
