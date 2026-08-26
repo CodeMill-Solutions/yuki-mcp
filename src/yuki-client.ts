@@ -4,8 +4,56 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
-// Confirmed via WSDL inspection of api.yukiworks.nl
-const YUKI_BASE_URL = 'https://api.yukiworks.nl/ws/';
+// Yuki runs region-specific API hosts. An administration only exists on the
+// host for its own region, so calls to the wrong region authenticate fine but
+// then fail on every data call with "Domain has no active database".
+const YUKI_REGION_HOSTS: Record<string, string> = {
+  nl: 'https://api.yukiworks.nl/ws/',
+  be: 'https://api.yukiworks.be/ws/',
+};
+const DEFAULT_YUKI_REGION = 'nl';
+
+/**
+ * Append a hint when a fault looks like the caller is talking to the wrong
+ * regional host. Yuki returns the same opaque message for a genuinely
+ * unscoped API key and for a valid key pointed at the wrong region, which is
+ * otherwise very hard to diagnose.
+ */
+function regionHint(fault: string | null, url: string): string {
+  if (!fault || !/no active database/i.test(fault)) return '';
+  const alternatives = Object.entries(YUKI_REGION_HOSTS)
+    .filter(([, host]) => !url.startsWith(host))
+    .map(([region]) => region);
+  if (alternatives.length === 0) return '';
+  return (
+    ` (called ${url}. If this administration is not Dutch, set YUKI_REGION` +
+    ` to one of: ${alternatives.join(', ')} — or set YUKI_BASE_URL explicitly.)`
+  );
+}
+
+/**
+ * Resolve the Yuki API base URL.
+ *
+ * `YUKI_BASE_URL` (a full URL) takes precedence, so unlisted or future hosts
+ * can be reached without a code change. Otherwise `YUKI_REGION` selects a
+ * known regional host. Defaults to the Dutch host for backwards compatibility.
+ */
+export function resolveBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const explicit = env['YUKI_BASE_URL']?.trim();
+  if (explicit) return explicit.endsWith('/') ? explicit : `${explicit}/`;
+
+  const region = (env['YUKI_REGION']?.trim() || DEFAULT_YUKI_REGION).toLowerCase();
+  const host = YUKI_REGION_HOSTS[region];
+  if (!host) {
+    throw new Error(
+      `Unknown YUKI_REGION "${region}". Supported regions: ${Object.keys(YUKI_REGION_HOSTS).join(', ')}. ` +
+        'Alternatively set YUKI_BASE_URL to a full API URL.',
+    );
+  }
+  return host;
+}
+
+const YUKI_BASE_URL = resolveBaseUrl();
 const YUKI_NAMESPACE = 'http://www.theyukicompany.com/';
 
 // Tags that should always be treated as arrays even when there is only one element
@@ -338,7 +386,7 @@ export class YukiClient {
       if (axios.isAxiosError(err)) {
         if (err.response?.data) {
           const fault = this.extractSoapFault(err.response.data as string);
-          if (fault) throw new Error(`SOAP Fault: ${fault}`);
+          if (fault) throw new Error(`SOAP Fault: ${fault}${regionHint(fault, url)}`);
           throw new Error(`HTTP ${err.response.status} ${err.response.statusText} from ${url}`);
         }
         throw new Error(`Network error calling Yuki API: ${err.message}`);
@@ -355,7 +403,7 @@ export class YukiClient {
 
     if (body['Fault']) {
       const fault = this.extractSoapFault(responseData);
-      throw new Error(`SOAP Fault: ${fault ?? 'Unknown SOAP fault'}`);
+      throw new Error(`SOAP Fault: ${fault ?? 'Unknown SOAP fault'}${regionHint(fault, url)}`);
     }
 
     // Unwrap <{method}Response><{method}Result> automatically
