@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-08-26
+
+First release with an external contribution — thanks
+[@jorisvanherp](https://github.com/jorisvanherp)
+([#1](https://github.com/CodeMill-Solutions/yuki-mcp/pull/1)).
+
+### Added
+
+- **Configurable API region.** Yuki serves each region from its own API
+  host, and an administration only exists on the host for its own region —
+  so Belgian administrations previously authenticated fine against the
+  hardcoded Dutch host but failed on every data call with
+  `SOAP Fault: Domain has no active database`. Two new optional env vars,
+  both defaulting to the previous behaviour:
+  - `YUKI_REGION` — `nl` (default) or `be`; selects a known regional host.
+  - `YUKI_BASE_URL` — full API base URL; overrides `YUKI_REGION` entirely,
+    as an escape hatch for hosts not listed.
+- **Region hint on "no active database" faults.** The fault message now
+  names the host that was called and the regions that could be tried
+  instead, since Yuki returns the same opaque message for an unscoped API
+  key and for a valid key pointed at the wrong regional host.
+- **`resolveBaseUrl()` export** in `yuki-client.ts` with an injectable
+  env, so URL resolution is unit-testable. Normalises `YUKI_REGION`
+  (case/whitespace), appends a missing trailing slash to `YUKI_BASE_URL`,
+  and fails fast at startup on an unknown region.
+- README section **API region** documenting the fault and both variables;
+  `YUKI_REGION` added to `.env.example` and the quick-start config block.
+
+### Changed
+
+- Server version string in `src/index.ts` bumped from `1.5.1` to `1.6.0`
+  so the `McpServer` handshake reports the published package version.
+
+### Notes
+
+The region applies per server instance: a keys file mixing Dutch and
+Belgian administrations still needs two instances. Per-administration
+region in the keys file, plus a region-neutral wording of the fault hint,
+are planned for a next release.
+
 ## [1.5.1] - 2026-05-25
 
 ### Added
