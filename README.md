@@ -22,12 +22,15 @@ Then add it to your MCP host configuration (e.g. `claude_desktop_config.json`):
       "args": ["node_modules/@codemill-solutions/yuki-mcp/dist/index.js"],
       "env": {
         "YUKI_API_KEY": "your-api-key-here",
-        "YUKI_DOMAIN_ID": "your-administration-guid-here"
+        "YUKI_DOMAIN_ID": "your-administration-guid-here",
+        "YUKI_REGION": "nl"
       }
     }
   }
 }
 ```
+
+> **Belgian administrations must set `YUKI_REGION=be`.** See [API region](#api-region).
 
 ---
 
@@ -58,6 +61,7 @@ Edit `.env`:
 ```env
 YUKI_API_KEY=your-api-key-here
 YUKI_DOMAIN_ID=your-administration-guid-here  # optional at startup
+YUKI_REGION=nl                                # nl (default) or be
 ```
 
 `YUKI_DOMAIN_ID` can be left empty — the server starts without it. Call `get_administrations` to discover the correct GUID, then pass it via the `administrationId` parameter on individual tools.
@@ -86,6 +90,38 @@ Add to your MCP host configuration (e.g. `claude_desktop_config.json`):
   }
 }
 ```
+
+---
+
+## API region
+
+Yuki runs a separate API host per region, and an administration only exists on the host
+for its own region. A key for a Belgian administration authenticates successfully against
+the Dutch host but then fails on **every** data call with:
+
+```
+SOAP Fault: Domain has no active database
+```
+
+Set the region to match your administration:
+
+| Variable | Values | Default | Purpose |
+| --- | --- | --- | --- |
+| `YUKI_REGION` | `nl`, `be` | `nl` | Selects a known regional API host |
+| `YUKI_BASE_URL` | full URL | — | Overrides `YUKI_REGION` entirely; use for hosts not listed above |
+
+```env
+YUKI_REGION=be
+```
+
+`YUKI_BASE_URL` takes precedence when both are set, so a new or private host can be reached
+without waiting on a release:
+
+```env
+YUKI_BASE_URL=https://api.yukiworks.be/ws/
+```
+
+Defaults are unchanged — omitting both keeps the previous `api.yukiworks.nl` behaviour.
 
 ---
 
