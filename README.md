@@ -8,18 +8,14 @@ Built with Node.js, TypeScript, and [`@modelcontextprotocol/sdk`](https://github
 
 ## Installation
 
-```bash
-npm install @codemill-solutions/yuki-mcp
-```
-
-Then add it to your MCP host configuration (e.g. `claude_desktop_config.json`):
+The quickest way is to let your MCP host run the package directly through `npx` — nothing to install or build. Add it to your MCP host configuration (e.g. `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "yuki": {
-      "command": "node",
-      "args": ["node_modules/@codemill-solutions/yuki-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@codemill-solutions/yuki-mcp"],
       "env": {
         "YUKI_API_KEY": "your-api-key-here",
         "YUKI_DOMAIN_ID": "your-administration-guid-here",
@@ -31,6 +27,30 @@ Then add it to your MCP host configuration (e.g. `claude_desktop_config.json`):
 ```
 
 > **Belgian administrations must set `YUKI_REGION=be`.** See [API region](#api-region).
+
+Prefer a pinned local install? Install the package and point your host at its entry point instead:
+
+```bash
+npm install @codemill-solutions/yuki-mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "yuki": {
+      "command": "node",
+      "args": ["/absolute/path/to/node_modules/@codemill-solutions/yuki-mcp/dist/index.js"],
+      "env": {
+        "YUKI_API_KEY": "your-api-key-here",
+        "YUKI_DOMAIN_ID": "your-administration-guid-here",
+        "YUKI_REGION": "nl"
+      }
+    }
+  }
+}
+```
+
+> Desktop MCP hosts such as Claude Desktop do not inherit your shell's `PATH`. If the server only reports **"Server disconnected"**, use absolute paths for the command (`which npx` / `which node`, e.g. `/opt/homebrew/bin/npx` on Apple Silicon Macs) — see [Troubleshooting](#troubleshooting).
 
 ---
 
@@ -123,20 +143,44 @@ YUKI_BASE_URL=https://api.yukiworks.be/ws/
 
 Defaults are unchanged — omitting both keeps the previous `api.yukiworks.nl` behaviour.
 
+### Per administration
+
+`YUKI_REGION` / `YUKI_BASE_URL` set the server-wide default. When one server serves administrations in more than one region, pin the exceptions in the [keys file](#keys-file-format):
+
+```json
+{
+  "<dutch-administration-id>": "api-key-nl",
+  "<belgian-administration-id>": { "apiKey": "api-key-be", "region": "be" }
+}
+```
+
+When a call still lands on the wrong host, the `Domain has no active database` fault names the host that was called and the regions to try.
+
 ---
 
 ## Multi-administration support
 
-If you manage **multiple Yuki administrations** (each with its own API key), you can supply a JSON file that maps every `administrationId` to its corresponding API key. The server then authenticates per administration automatically — no single shared key required.
+If you manage **multiple Yuki administrations** (each with its own API key), you can supply a JSON file that maps every `administrationId` to its corresponding API key. The server then authenticates per administration automatically — no single shared key required. Administrations in different regions can share one server: give an entry its own `region`.
 
 ### Keys file format
+
+Each value is either the API key itself, or an object with the key plus an optional region override:
 
 ```json
 {
   "a1b2c3d4-0000-0000-0000-000000000001": "api-key-for-admin-1",
-  "a1b2c3d4-0000-0000-0000-000000000002": "api-key-for-admin-2"
+  "a1b2c3d4-0000-0000-0000-000000000002": { "apiKey": "api-key-for-admin-2", "region": "be" },
+  "a1b2c3d4-0000-0000-0000-000000000003": { "apiKey": "api-key-for-admin-3", "baseUrl": "https://api.yukiworks.be/ws/" }
 }
 ```
+
+| Field | Required | Purpose |
+|-------|----------|---------|
+| `apiKey` | yes | The administration's API key |
+| `region` | no | `nl` or `be` — the API host for this administration. Defaults to the server-wide `YUKI_REGION` |
+| `baseUrl` | no | Full API URL for this administration; takes precedence over `region` |
+
+Plain string entries keep using the server-wide region, so existing files work unchanged. An unknown `region` is reported as an error (at startup or from `reload_keys`) rather than silently falling back to the default host. Each session is bound to the host that issued it, so tools need no extra parameters; `reload_keys` treats a changed region like a changed key and re-authenticates.
 
 ### Path resolution (first match wins)
 
@@ -160,7 +204,7 @@ If neither `YUKI_API_KEY` nor a keys file is found at startup, the server logs a
 
 When a new key is generated externally — for example by a sibling MCP server that drives the Yuki Integraties UI to create a fresh API key for a new administration — the new entry only lands in `~/.yuki/api-keys.json`. By default the MCP server reads that file once at startup, so a freshly added key would require a server restart before it can be used for SOAP calls.
 
-The **`reload_keys`** tool (see [Available tools](#available-tools-31) below) avoids this: it re-reads the keys file from disk and replaces the in-memory map in place. Sessions for keys that **changed** or were **removed** are evicted from the session cache automatically; sessions for unchanged keys stay warm so subsequent calls do not pay the re-authentication cost.
+The **`reload_keys`** tool (see [Available tools](#available-tools-31) below) avoids this: it re-reads the keys file from disk and replaces the in-memory map in place. Sessions for entries whose key or region **changed** or that were **removed** are evicted from the session cache automatically; sessions for unchanged entries stay warm so subsequent calls do not pay the re-authentication cost.
 
 Typical flow for a sibling tool that has just minted a new key:
 
@@ -180,7 +224,7 @@ Typical flow for a sibling tool that has just minted a new key:
 |------|-------------|
 | `get_administrations` | List all administrations (companies) for this API key. **Run this first** to find the correct `administrationId`. |
 | `get_administration_id` | Look up an administration's GUID by its exact name. Useful when you know the name but not the GUID. |
-| `reload_keys` | Re-read the `administrationId → apiKey` JSON file from disk without restarting the server. Returns a diff of added/updated/removed IDs and invalidates affected sessions. Use after an external `create_api_key` flow. |
+| `reload_keys` | Re-read the `administrationId → apiKey` JSON file (including per-administration `region` overrides) from disk without restarting the server. Returns a diff of added/updated/removed IDs and invalidates affected sessions. Use after an external `create_api_key` flow. |
 
 ### Relations
 
@@ -200,7 +244,7 @@ Typical flow for a sibling tool that has just minted a new key:
 
 | Tool | Key parameters | Description |
 |------|----------------|-------------|
-| `get_missing_invoices` | — | Retrieve bank payments that still need a matching purchase invoice — equivalent to "Postbus → Ontbrekende facturen" in the Yuki web interface. |
+| `get_missing_invoices` | `types?` | Retrieve bank payments that still need a matching purchase invoice — equivalent to "Postbus → Ontbrekende facturen" in the Yuki web interface. Works for Dutch and Belgian administrations; the response includes `typesSeen`, and an unexpected `<Type>` label can be passed via `types`. |
 | `get_purchase_invoices` | `dateOutstanding?`, `sortOrder?`, `includeBankTransactions?` | Retrieve outstanding (unpaid) purchase invoices. |
 | `process_purchase_invoice` | `date`, `invoiceAmount`, `invoiceVatAmount`, `contact`, `lines` | Book an incoming purchase invoice. Accepts an optional PDF as base64. |
 
@@ -343,6 +387,8 @@ Design agent workflows to fetch broad lists once and reference them from the age
 
 | Error | Likely cause |
 |-------|-------------|
+| **Server disconnected** with no further output | The MCP host could not start the server. Desktop hosts don't inherit your shell's `PATH`, so use absolute paths (`which npx` / `which node`). With package versions up to 1.6.0, `npx` also fails with `could not determine executable to run` because the package had no `bin` entry — upgrade, or run `node` against `dist/index.js` |
+| `get_missing_invoices` returns `count: 0` while Yuki shows missing invoices | Your administration reports a `<Type>` label the tool doesn't recognise — check `typesSeen` in the response and pass the bank-side labels via the `types` parameter |
 | `SOAP Fault: Authentication failed` | `YUKI_API_KEY` is incorrect or API access is not enabled in Yuki Settings |
 | `No API key found for administration …` | The `administrationId` passed to the tool is not in the loaded keys file — check `YUKI_API_KEYS_FILE` |
 | `SOAP Fault: Administration not found` | Wrong `administrationId` — run `get_administrations` to get the correct GUID |

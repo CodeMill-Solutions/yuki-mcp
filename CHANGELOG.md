@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-09-03
+
+Regions per administration, plus fixes and improvements prompted by feedback
+from a user running the server against a Belgian administration via Claude
+Desktop.
+
+### Added
+
+- **Per-administration region in the keys file.** A keys-file value may now
+  be an object instead of a bare API key —
+  `{ "<administrationId>": { "apiKey": "…", "region": "be" } }`, or
+  `"baseUrl": "https://…/ws/"` for a custom host — so one server instance can
+  serve Dutch and Belgian administrations side by side. Plain string entries
+  keep using the server-wide `YUKI_REGION` / `YUKI_BASE_URL`, so existing
+  files work unchanged. Sessions are bound to the host that issued them and
+  data calls are routed by their session ID, so no tool signatures change.
+  `reload_keys` treats a changed region like a changed key and
+  re-authenticates. An unknown region in the file is reported instead of
+  silently falling back to the default host, and the startup log counts the
+  entries with an override.
+- **`bin` entry (`yuki-mcp`)** plus a `#!/usr/bin/env node` shebang on the
+  entry point, so MCP hosts can start the server with
+  `npx -y @codemill-solutions/yuki-mcp` — the standard MCP install pattern —
+  instead of a `node` command pointing at `dist/index.js`. Previously `npx`
+  failed with `could not determine executable to run`, which hosts surface as
+  a bare "Server disconnected". README quick start updated accordingly, with
+  a note about desktop hosts not inheriting the shell `PATH`.
+- **`get_missing_invoices` diagnostics** — the response now includes
+  `totalItems` and `typesSeen` (a count per `<Type>` label in the raw
+  OutstandingCreditorItems result), each item carries its `type`, and an
+  optional `types` parameter overrides which labels are treated as unmatched
+  bank payments. An unrecognised label is now visible instead of a silent
+  `count: 0`.
+- Startup log line reports the resolved API host, so a wrong `YUKI_REGION`
+  is visible in the MCP host's logs.
+
+### Fixed
+
+- **`get_missing_invoices` returned `count: 0` on Belgian administrations.**
+  The tool only matched the Dutch `<Type>` label `Afschriftregel`; Belgian
+  administrations report `Banktransactie` and `Creditcardbetaling` for the
+  same bank-side items. All three labels are now accepted (case-insensitive).
+  `DEFAULT_MISSING_INVOICE_TYPES`, `readItemType()` and
+  `isMissingInvoiceType()` are exported from `tools/accounting-info.ts` for
+  testability.
+
+### Changed
+
+- **Region-neutral fault hint.** The hint appended to
+  `Domain has no active database` faults read "If this administration is not
+  Dutch…" even when the call had gone to the Belgian host. It now says
+  "belongs to a different region", lists the other known regions, and points
+  at the per-administration `region` option in the keys file.
+- `@anthropic-ai/sdk` moved from `dependencies` to `devDependencies`. It is
+  only used by `scripts/test-agent.ts` (`npm run agent`), which is not part
+  of the published package, so installs are lighter.
+- Server version string in `src/index.ts` bumped from `1.6.0` to `1.7.0`
+  so the `McpServer` handshake reports the published package version.
+
 ## [1.6.0] - 2026-08-26
 
 First release with an external contribution — thanks

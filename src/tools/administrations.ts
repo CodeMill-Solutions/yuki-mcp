@@ -141,11 +141,12 @@ export function registerReloadKeysTools(server: McpServer, client: YukiClient): 
     'reload_keys',
     {
       description:
-        'Reload the administrationId → apiKey map from the JSON keys file without ' +
-        'restarting the MCP server. Use after a new key has been generated externally ' +
-        '(for example via a `create_api_key` flow) to make it usable for SOAP calls ' +
-        'immediately. Sessions for changed/removed keys are invalidated; unchanged ' +
-        'keys keep their cached session. Returns a diff of added/updated/removed IDs.',
+        'Reload the administrationId → apiKey map (including per-administration region ' +
+        'overrides) from the JSON keys file without restarting the MCP server. Use after a ' +
+        'new key has been generated externally (for example via a `create_api_key` flow) to ' +
+        'make it usable for SOAP calls immediately. Sessions for changed/removed entries are ' +
+        'invalidated; unchanged entries keep their cached session. Returns a diff of ' +
+        'added/updated/removed IDs.',
       inputSchema: {
         path: z
           .string()

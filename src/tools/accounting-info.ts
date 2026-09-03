@@ -322,10 +322,12 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
    * inkoopfacturen" in the Yuki web interface.
    *
    * How it works: uses OutstandingCreditorItems with includeBankTransactions=true
-   * and filters for items of type "Afschriftregel" (bank statement line). These
-   * are bank payments that Yuki has matched to a creditor but for which no
-   * purchase invoice document has been uploaded. The documentID on each item
-   * refers to the bank statement, not to a purchase invoice.
+   * and keeps the bank-side items: payments that Yuki has matched to a creditor
+   * but for which no purchase invoice document has been uploaded. The <Type>
+   * label of those items depends on the region of the administration — Dutch
+   * administrations report "Afschriftregel", Belgian ones "Banktransactie" and
+   * "Creditcardbetaling" (see DEFAULT_MISSING_INVOICE_TYPES). The documentID on
+   * each item refers to the bank statement, not to a purchase invoice.
    *
    * Yuki service: Accounting.asmx · OutstandingCreditorItems
    * Rate cost: 1 request.
@@ -339,13 +341,21 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
         'Returns creditor name, open amount, date, and bank description for each unmatched payment. ' +
         'Use upload_document or process_purchase_invoice to resolve items in this list.',
       inputSchema: {
+        types: z
+          .array(z.string())
+          .optional()
+          .describe(
+            '<Type> labels to treat as unmatched bank payments. Defaults to ' +
+              `${DEFAULT_MISSING_INVOICE_TYPES.join(', ')} (Dutch and Belgian labels). ` +
+              'Override when the response reports other labels in typesSeen.',
+          ),
         administrationId: z
           .string()
           .optional()
           .describe('Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
       },
     },
-    async ({ administrationId }) => {
+    async ({ types, administrationId }) => {
       try {
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
@@ -369,20 +379,19 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
           ['Item', 'CreditorItem', 'Row'],
         ) as Array<Record<string, unknown>>;
 
-        // Filter for bank statement lines without a matching purchase invoice.
-        // "Afschriftregel" = bank statement line; these are the missing invoices.
-        // <Type> carries an ID attribute so fast-xml-parser returns it as
-        // { "@_ID": "", "#text": "Afschriftregel" } rather than a plain string.
+        // Keep the bank-side items; invoice-side items ("Aankoopfactuur",
+        // "Aankoop creditnota", …) are open purchase invoices, not missing ones.
+        // typesSeen is reported back so an unexpected label is easy to spot.
+        const accepted = types && types.length > 0 ? types : DEFAULT_MISSING_INVOICE_TYPES;
+        const typesSeen: Record<string, number> = {};
         const missing = items.filter((item) => {
-          const raw = item['Type'] ?? item['type'];
-          const type =
-            raw && typeof raw === 'object'
-              ? String((raw as Record<string, unknown>)['#text'] ?? '')
-              : String(raw ?? '');
-          return type === 'Afschriftregel';
+          const type = readItemType(item) || '(empty)';
+          typesSeen[type] = (typesSeen[type] ?? 0) + 1;
+          return isMissingInvoiceType(type, accepted);
         });
 
         const invoices = missing.map((item) => ({
+          type: readItemType(item),
           bankStatementDocumentId: item['DocumentID'] ?? item['documentID'] ?? null,
           date: item['Date'] ?? item['date'] ?? null,
           creditorName: item['Contact'] ?? item['ContactName'] ?? null,
@@ -402,9 +411,12 @@ export function registerAccountingInfoTools(server: McpServer, client: YukiClien
                 {
                   success: true,
                   count: invoices.length,
+                  totalItems: items.length,
+                  typesSeen,
                   note:
                     'Bank payments without a matching purchase invoice. ' +
-                    'Use upload_document or process_purchase_invoice to resolve each item.',
+                    'Use upload_document or process_purchase_invoice to resolve each item. ' +
+                    'If count is 0 while typesSeen lists bank-side labels, pass those labels via the types parameter.',
                   missingInvoices: invoices,
                 },
                 null,
@@ -526,6 +538,41 @@ function normalizeList(result: unknown, wrappers: string[], itemTags: string[]):
   }
 
   return [result];
+}
+
+// ── get_missing_invoices helpers ──────────────────────────────────────────────
+
+/**
+ * <Type> labels that OutstandingCreditorItems uses for bank-side items, i.e.
+ * payments without a matching purchase invoice. The label depends on the region
+ * of the administration: Dutch administrations report "Afschriftregel", Belgian
+ * ones "Banktransactie" / "Creditcardbetaling". Invoice-side items
+ * ("Aankoopfactuur", "Aankoop creditnota", …) never belong in this list.
+ */
+export const DEFAULT_MISSING_INVOICE_TYPES: readonly string[] = [
+  'Afschriftregel',
+  'Banktransactie',
+  'Creditcardbetaling',
+];
+
+/**
+ * Read the <Type> label of an OutstandingCreditorItems row. The element carries
+ * an ID attribute, so fast-xml-parser returns it as { "@_ID": "", "#text": "…" }
+ * rather than a plain string.
+ */
+export function readItemType(item: Record<string, unknown>): string {
+  const raw = item['Type'] ?? item['type'];
+  const text = raw && typeof raw === 'object' ? (raw as Record<string, unknown>)['#text'] : raw;
+  return String(text ?? '').trim();
+}
+
+/** Case-insensitive membership test against the accepted bank-side labels. */
+export function isMissingInvoiceType(
+  type: string,
+  accepted: readonly string[] = DEFAULT_MISSING_INVOICE_TYPES,
+): boolean {
+  const needle = type.trim().toLowerCase();
+  return accepted.some((label) => label.trim().toLowerCase() === needle);
 }
 
 /** Uniform error response shape. */

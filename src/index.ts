@@ -1,7 +1,8 @@
+#!/usr/bin/env node
 import 'dotenv/config';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { YukiClient, loadApiKeysFile } from './yuki-client.js';
+import { YukiClient, YUKI_BASE_URL, loadApiKeysFile, type AdministrationCredentials } from './yuki-client.js';
 
 // Read tools
 import {
@@ -30,13 +31,15 @@ import { registerBackofficeTools } from './tools/backoffice.js';
 // This allows the MCP server to serve multiple Yuki administrations, each with
 // its own API key, without requiring a single YUKI_API_KEY for all of them.
 //
-// The file format is a plain JSON object:
-//   { "<administrationId>": "<apiKey>", ... }
+// The file format is a plain JSON object. A value is either the API key, or an
+// object that also pins the administration to its own API region:
+//   { "<administrationId>": "<apiKey>",
+//     "<administrationId>": { "apiKey": "<apiKey>", "region": "be" }, ... }
 //
 // Path resolution + parsing lives in `yuki-client.ts` (`loadApiKeysFile`) so
 // the runtime `reload_keys` tool can share the exact same behaviour.
 
-let apiKeyMap = new Map<string, string>();
+let apiKeyMap = new Map<string, AdministrationCredentials>();
 let keysFilePath = '(none)';
 
 try {
@@ -44,7 +47,12 @@ try {
   keysFilePath = loaded.path;
   apiKeyMap = loaded.map;
   if (loaded.found) {
-    process.stderr.write(`[yuki-mcp] Loaded ${apiKeyMap.size} API keys from ${keysFilePath}\n`);
+    const overrides = [...apiKeyMap.values()].filter((entry) => entry.baseUrl !== YUKI_BASE_URL).length;
+    process.stderr.write(
+      `[yuki-mcp] Loaded ${apiKeyMap.size} API keys from ${keysFilePath}` +
+        (overrides > 0 ? ` (${overrides} with a region/baseUrl override)` : '') +
+        '\n',
+    );
   }
 } catch (err) {
   process.stderr.write(`[yuki-mcp] Warning: could not read API keys file at ${keysFilePath}: ${err}\n`);
@@ -75,7 +83,7 @@ const yukiClient = new YukiClient(apiKey, domainId, apiKeyMap);
 
 const server = new McpServer({
   name: 'yuki-mcp',
-  version: '1.6.0',
+  version: '1.7.0',
 });
 
 // ── Read tools ────────────────────────────────────────────────────────────────
@@ -114,5 +122,5 @@ const keyInfo =
 
 process.stderr.write(
   `[yuki-mcp] Server started — 31 tools registered. ` +
-    `Domain ID: ${domainId || '(none)'} — ${keyInfo}\n`,
+    `Domain ID: ${domainId || '(none)'} — ${keyInfo} — API host: ${YUKI_BASE_URL}\n`,
 );
