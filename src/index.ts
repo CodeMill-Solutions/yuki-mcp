@@ -55,7 +55,9 @@ try {
     );
   }
 } catch (err) {
-  process.stderr.write(`[yuki-mcp] Warning: could not read API keys file at ${keysFilePath}: ${err}\n`);
+  // Loader errors already name the file, so no path prefix here.
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`[yuki-mcp] Warning: could not load API keys file: ${message}\n`);
 }
 
 // ── Environment validation ────────────────────────────────────────────────────
@@ -83,7 +85,7 @@ const yukiClient = new YukiClient(apiKey, domainId, apiKeyMap);
 
 const server = new McpServer({
   name: 'yuki-mcp',
-  version: '1.7.0',
+  version: '1.7.1',
 });
 
 // ── Read tools ────────────────────────────────────────────────────────────────

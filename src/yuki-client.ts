@@ -180,21 +180,37 @@ export interface LoadedApiKeys {
 /** One value in the keys file, before validation. */
 type RawKeyEntry = string | { apiKey?: unknown; region?: unknown; baseUrl?: unknown } | null;
 
-export function resolveApiKeysFilePath(explicitPath?: string): string {
-  if (explicitPath) return explicitPath;
+/**
+ * Locate the keys file. The location is operator-controlled only —
+ * `YUKI_API_KEYS_FILE`, then the default locations — and is never taken from
+ * an MCP client: a tool must not let the model choose which file is read.
+ */
+export function resolveApiKeysFilePath(): string {
   if (process.env['YUKI_API_KEYS_FILE']) return process.env['YUKI_API_KEYS_FILE'];
   const userPath = join(homedir(), '.yuki', 'api-keys.json');
   if (existsSync(userPath)) return userPath;
   return 'api-keys.json';
 }
 
-export function loadApiKeysFile(explicitPath?: string, defaultBaseUrl: string = YUKI_BASE_URL): LoadedApiKeys {
-  const path = resolveApiKeysFilePath(explicitPath);
+export function loadApiKeysFile(defaultBaseUrl: string = YUKI_BASE_URL): LoadedApiKeys {
+  const path = resolveApiKeysFilePath();
   const map = new Map<string, AdministrationCredentials>();
   if (!existsSync(path)) {
     return { path, map, found: false };
   }
-  const raw = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, RawKeyEntry>;
+  const text = readFileSync(path, 'utf-8');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Deliberately generic: V8's SyntaxError message quotes a snippet of the
+    // offending text, and `reload_keys` returns this message to the MCP client.
+    throw new Error(`API keys file at ${path} is not valid JSON`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`API keys file at ${path} must contain a JSON object mapping administrationId → apiKey`);
+  }
+  const raw = parsed as Record<string, RawKeyEntry>;
   for (const [adminId, entry] of Object.entries(raw)) {
     if (!adminId) continue;
     const credentials = parseKeyEntry(entry, defaultBaseUrl, `administration ${adminId} in ${path}`);

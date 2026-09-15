@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-09-15
+
+Hardening of the `reload_keys` tool. No new features.
+
+### Security
+
+- **`reload_keys` no longer accepts a `path` argument.** The tool always
+  re-reads the keys file from the location configured for the server
+  (`YUKI_API_KEYS_FILE` → `~/.yuki/api-keys.json` → `./api-keys.json`), the
+  same resolution as at startup. Which file holds the keys is the operator's
+  decision; the model can only trigger a reload. Previously any MCP client
+  could point the tool at an arbitrary local file, which the server would
+  read and — if it parsed as JSON — load as the active key map. A `path`
+  argument sent by an older client is ignored; the `source` field in the
+  response shows which file was read.
+- **Generic error for an unparsable keys file.** A file that is not valid
+  JSON is now reported as `API keys file at … is not valid JSON`. The
+  previous message was V8's own `SyntaxError`, which quotes up to 20
+  characters of the offending text. A file that parses but is not a JSON
+  object (an array, string, number or `null`) is rejected as well, instead of
+  being iterated as if it were a map.
+
+### Changed
+
+- Startup warning for an unreadable keys file now reads
+  `could not load API keys file: <reason>` instead of printing
+  `at (none)` followed by an `Error:` prefix and the path a second time.
+- Server version string in `src/index.ts` bumped to `1.7.1`.
+
+### Notes
+
+The server runs locally over stdio under the user's own account, so the
+reported behaviour never crossed a privilege boundary: the same account could
+read the file directly, and `upload_document_from_path` reads local files by
+design. We treat this release as hardening rather than a vulnerability fix and
+have not requested a CVE.
+
 ## [1.7.0] - 2026-09-03
 
 Regions per administration, plus fixes and improvements prompted by feedback

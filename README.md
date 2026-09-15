@@ -214,6 +214,8 @@ Typical flow for a sibling tool that has just minted a new key:
 3. yuki-mcp.get_administrations  → now works for the new admin without restart
 ```
 
+`reload_keys` takes no arguments: it always reads the file resolved by the rules above. Which file holds the keys is the operator's decision — the environment variable or a default location — and an MCP client can trigger a reload but cannot choose the file. Versions up to 1.7.0 accepted an optional `path` argument; it is ignored since 1.7.1 (see the [changelog](CHANGELOG.md)). A file that does not parse is reported as `API keys file at … is not valid JSON`, without quoting its contents.
+
 ---
 
 ## Available tools (31)
@@ -224,7 +226,7 @@ Typical flow for a sibling tool that has just minted a new key:
 |------|-------------|
 | `get_administrations` | List all administrations (companies) for this API key. **Run this first** to find the correct `administrationId`. |
 | `get_administration_id` | Look up an administration's GUID by its exact name. Useful when you know the name but not the GUID. |
-| `reload_keys` | Re-read the `administrationId → apiKey` JSON file (including per-administration `region` overrides) from disk without restarting the server. Returns a diff of added/updated/removed IDs and invalidates affected sessions. Use after an external `create_api_key` flow. |
+| `reload_keys` | Re-read the `administrationId → apiKey` JSON file (including per-administration `region` overrides) from its configured location without restarting the server. Takes no arguments. Returns a diff of added/updated/removed IDs and invalidates affected sessions. Use after an external `create_api_key` flow. |
 
 ### Relations
 
@@ -391,6 +393,7 @@ Design agent workflows to fetch broad lists once and reference them from the age
 | `get_missing_invoices` returns `count: 0` while Yuki shows missing invoices | Your administration reports a `<Type>` label the tool doesn't recognise — check `typesSeen` in the response and pass the bank-side labels via the `types` parameter |
 | `SOAP Fault: Authentication failed` | `YUKI_API_KEY` is incorrect or API access is not enabled in Yuki Settings |
 | `No API key found for administration …` | The `administrationId` passed to the tool is not in the loaded keys file — check `YUKI_API_KEYS_FILE` |
+| `API keys file at … is not valid JSON` | The keys file exists but does not parse — look for a trailing comma or stray character. The file must be a single JSON object mapping `administrationId` → key |
 | `SOAP Fault: Administration not found` | Wrong `administrationId` — run `get_administrations` to get the correct GUID |
 | `Journal entries do not balance` | Amounts in `process_journal` don't sum to 0 — check debit/credit signs |
 | `HTTP 500 from api.yukiworks.nl` | Usually a wrong XML namespace or malformed `xmlDoc` — check the WSDL at `https://api.yukiworks.nl/ws/{Service}.asmx?wsdl` |
