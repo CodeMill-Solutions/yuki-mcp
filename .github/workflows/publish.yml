@@ -5,22 +5,32 @@ on:
     tags:
       - 'v*'
 
+# Trusted publishing: npm exchanges this job's GitHub Actions OIDC token for a
+# short-lived registry token, so no long-lived NPM_TOKEN secret is needed.
+# The trusted publisher configured on npmjs.com is bound to this repository and
+# to this workflow's filename (publish.yml); renaming the file stops publishing.
+permissions:
+  id-token: write # required for OIDC
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          # Trusted publishing needs npm 11.5.1+ and Node 22.14+; Node 24 bundles npm 11.x
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
 
       - run: npm ci
 
       - run: npm run build
 
+      # Provenance attestations are generated automatically for a public package
+      # published from a public repository through trusted publishing.
       - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

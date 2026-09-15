@@ -33,6 +33,9 @@ Hardening of the `reload_keys` tool. No new features.
   `could not load API keys file: <reason>` instead of printing
   `at (none)` followed by an `Error:` prefix and the path a second time.
 - Server version string in `src/index.ts` bumped to `1.7.1`.
+- Releases are now published through npm trusted publishing (GitHub Actions
+  OIDC) with provenance attestations, instead of a long-lived npm token in
+  CI. No change to the package itself.
 
 ### Notes
 
