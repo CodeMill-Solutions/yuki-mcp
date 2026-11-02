@@ -296,8 +296,7 @@ function buildContactXml(args: {
 }): string {
   const x = escapeXml;
 
-  return `<?xml version="1.0" encoding="utf-8"?>
-<Contacts xmlns="urn:xmlns:http://www.theyukicompany.com:contacts"
+  return `<Contacts xmlns="urn:xmlns:http://www.theyukicompany.com:contacts"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <Contact>
     ${args.contactCode ? `<ContactCode>${x(args.contactCode)}</ContactCode>` : ''}
