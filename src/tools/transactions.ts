@@ -314,8 +314,7 @@ function buildJournalXml(args: {
     )
     .join('');
 
-  return `<?xml version="1.0" encoding="utf-8"?>
-<Journal xmlns="urn:xmlns:http://www.theyukicompany.com:journal"
+  return `<Journal xmlns="urn:xmlns:http://www.theyukicompany.com:journal"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <AdministrationID>${x(args.administrationId)}</AdministrationID>
   <DocumentSubject>${x(args.subject)}</DocumentSubject>

@@ -300,7 +300,12 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
         'Optionally sends the invoice to the customer by email. ' +
         'Returns the Yuki response including the assigned document ID.',
       inputSchema: {
-        reference: z.string().describe("Invoice number / reference (e.g. '2024-0042')"),
+        reference: z
+          .string()
+          .optional()
+          .describe(
+            "Invoice number (e.g. '2024-0042'). Required when process=true. Must be omitted when process=false: Yuki assigns the number.",
+          ),
         subject: z.string().describe('Invoice title shown to the customer'),
         date: z.string().describe('Invoice date in YYYY-MM-DD format'),
         dueDate: z.string().describe('Payment due date in YYYY-MM-DD format'),
@@ -319,6 +324,10 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
                 .default('NL_Normal')
                 .describe('VAT type code: NL_Normal (21%), NL_Reduced (9%), NL_Zero (0%), NL_None (exempt)'),
               glAccountCode: z.string().optional().describe('GL account code to post this line to'),
+              productDescription: z
+                .string()
+                .optional()
+                .describe('Yuki product name. Products are matched on this; defaults to the line description.'),
               productReference: z.string().optional().describe('Product/SKU reference code'),
             }),
           )
@@ -329,7 +338,13 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
           .optional()
           .default('ElectronicTransfer'),
         currency: z.string().optional().default('EUR').describe('ISO 4217 currency code'),
-        process: z.boolean().optional().default(true).describe('Immediately process/finalise the invoice in Yuki'),
+        process: z
+          .boolean()
+          .optional()
+          .default(true)
+          .describe(
+            'true books the invoice (needs reference). false leaves it in Yuki under To be sent (no reference allowed).',
+          ),
         emailToCustomer: z
           .boolean()
           .optional()
@@ -359,6 +374,11 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
       try {
         const adminId = administrationId ?? client.defaultDomainId;
         if (!adminId) throw new Error('administrationId is required (or set YUKI_DOMAIN_ID env var)');
+        if (doProcess && !reference) throw new Error('reference is required when process=true');
+        if (!doProcess && reference) {
+          throw new Error('Yuki does not accept a reference when process=false: omit it and Yuki assigns the number');
+        }
+        if (!doProcess && emailToCustomer) throw new Error('emailToCustomer needs process=true');
 
         const sessionId = await client.getSessionID(adminId);
         const xmlDoc = buildSalesInvoiceXml({
@@ -386,8 +406,15 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
           },
         });
 
+        // Yuki answers HTTP 200 even when an invoice is rejected; its own counters decide.
+        const summary = typeof result === 'string' ? result : JSON.stringify(result);
+        const failed = Number(summary.match(/TotalFailed\W{0,3}(\d+)/)?.[1] ?? NaN);
+        const succeeded = Number(summary.match(/TotalSucceeded\W{0,3}(\d+)/)?.[1] ?? NaN);
+        const ok = succeeded > 0 && failed === 0;
+
         return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ success: true, reference, result }, null, 2) }],
+          content: [{ type: 'text' as const, text: JSON.stringify({ success: ok, reference, result }, null, 2) }],
+          ...(ok ? {} : { isError: true }),
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -537,9 +564,9 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
 
 // ── XML document builders ─────────────────────────────────────────────────────
 
-/** Build the xmlDoc string for ProcessSalesInvoices. */
+/** Build the xmlDoc string for ProcessSalesInvoices, in Yuki's documented element order. */
 function buildSalesInvoiceXml(args: {
-  reference: string;
+  reference?: string;
   subject: string;
   date: string;
   dueDate: string;
@@ -552,6 +579,7 @@ function buildSalesInvoiceXml(args: {
     vatIncluded?: boolean;
     vatType?: string;
     glAccountCode?: string;
+    productDescription?: string;
     productReference?: string;
   }>;
   paymentMethod?: string;
@@ -562,6 +590,7 @@ function buildSalesInvoiceXml(args: {
 }): string {
   const x = escapeXml;
   const { contact } = args;
+  const vatTypes: Record<string, string> = { NL_Normal: '1', NL_Reduced: '2' };
 
   const linesXml = args.lines
     .map(
@@ -570,44 +599,45 @@ function buildSalesInvoiceXml(args: {
         <Description>${x(line.description)}</Description>
         <ProductQuantity>${line.quantity ?? 1}</ProductQuantity>
         <Product>
+          <Description>${x(line.productDescription ?? line.description)}</Description>
+          ${line.productReference ? `<Reference>${x(line.productReference)}</Reference>` : ''}
+          <Category xsi:nil="true" />
           <SalesPrice>${line.salesPrice}</SalesPrice>
           <VATPercentage>${line.vatPercentage ?? 21}</VATPercentage>
           <VATIncluded>${line.vatIncluded ?? false}</VATIncluded>
-          <VATType>${x(line.vatType ?? 'NL_Normal')}</VATType>
+          <VATType>${x(vatTypes[line.vatType ?? 'NL_Normal'] ?? line.vatType ?? '1')}</VATType>
           ${line.glAccountCode ? `<GLAccountCode>${x(line.glAccountCode)}</GLAccountCode>` : ''}
-          ${line.productReference ? `<Reference>${x(line.productReference)}</Reference>` : ''}
         </Product>
       </InvoiceLine>`,
     )
     .join('');
 
-  return `<?xml version="1.0" encoding="utf-8"?>
-<SalesInvoices xmlns="urn:xmlns:http://www.theyukicompany.com:salesinvoices"
+  return `<SalesInvoices xmlns="urn:xmlns:http://www.theyukicompany.com:salesinvoices"
                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <SalesInvoice>
-    <Reference>${x(args.reference)}</Reference>
+    ${args.reference ? `<Reference>${x(args.reference)}</Reference>` : ''}
     <Subject>${x(args.subject)}</Subject>
-    <Date>${x(args.date)}</Date>
-    <DueDate>${x(args.dueDate)}</DueDate>
     <PaymentMethod>${x(args.paymentMethod ?? 'ElectronicTransfer')}</PaymentMethod>
-    <Currency>${x(args.currency ?? 'EUR')}</Currency>
     <Process>${args.process ?? true}</Process>
     <EmailToCustomer>${args.emailToCustomer ?? false}</EmailToCustomer>
+    <Date>${x(args.date)}</Date>
+    <DueDate>${x(args.dueDate)}</DueDate>
+    <Currency>${x(args.currency ?? 'EUR')}</Currency>
     ${args.remarks ? `<Remarks>${x(args.remarks)}</Remarks>` : ''}
     <Contact>
       ${contact.contactCode ? `<ContactCode>${x(contact.contactCode)}</ContactCode>` : ''}
       <FullName>${x(contact.fullName)}</FullName>
       ${contact.firstName ? `<FirstName>${x(contact.firstName)}</FirstName>` : ''}
       ${contact.lastName ? `<LastName>${x(contact.lastName)}</LastName>` : ''}
-      ${contact.emailAddress ? `<EmailAddress>${x(contact.emailAddress)}</EmailAddress>` : ''}
       ${contact.countryCode ? `<CountryCode>${x(contact.countryCode)}</CountryCode>` : ''}
       ${contact.city ? `<City>${x(contact.city)}</City>` : ''}
       ${contact.zipcode ? `<Zipcode>${x(contact.zipcode)}</Zipcode>` : ''}
       ${contact.addressLine1 ? `<AddressLine_1>${x(contact.addressLine1)}</AddressLine_1>` : ''}
       ${contact.addressLine2 ? `<AddressLine_2>${x(contact.addressLine2)}</AddressLine_2>` : ''}
-      ${contact.vatNumber ? `<VATNumber>${x(contact.vatNumber)}</VATNumber>` : ''}
+      ${contact.emailAddress ? `<EmailAddress>${x(contact.emailAddress)}</EmailAddress>` : ''}
       ${contact.cocNumber ? `<CoCNumber>${x(contact.cocNumber)}</CoCNumber>` : ''}
-      ${contact.contactType ? `<ContactType>${x(contact.contactType)}</ContactType>` : ''}
+      ${contact.vatNumber ? `<VATNumber>${x(contact.vatNumber)}</VATNumber>` : ''}
+      <ContactType>${contact.contactType === 'Person' ? 'Person' : 'Company'}</ContactType>
     </Contact>
     <InvoiceLines>${linesXml}
     </InvoiceLines>
@@ -655,8 +685,7 @@ function buildPurchaseInvoiceXml(args: {
     )
     .join('');
 
-  return `<?xml version="1.0" encoding="utf-8"?>
-<PurchaseInvoices xmlns="urn:xmlns:http://www.theyukicompany.com:purchaseinvoices"
+  return `<PurchaseInvoices xmlns="urn:xmlns:http://www.theyukicompany.com:purchaseinvoices"
                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <PurchaseInvoice>
     <Process>${args.process ?? true}</Process>

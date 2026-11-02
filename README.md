@@ -240,7 +240,7 @@ Typical flow for a sibling tool that has just minted a new key:
 | Tool | Key parameters | Description |
 |------|----------------|-------------|
 | `get_sales_invoices` | `dateOutstanding?`, `sortOrder?`, `includeBankTransactions?` | Retrieve outstanding (unpaid) sales invoices. |
-| `process_sales_invoice` | `reference`, `subject`, `date`, `dueDate`, `contact`, `lines` | Create and book a new sales invoice. Optionally email it to the customer. |
+| `process_sales_invoice` | `reference?`, `subject`, `date`, `dueDate`, `contact`, `lines`, `process?` | Create and book a new sales invoice, or use `process=false` without a `reference` to leave it under "To be sent". Optionally email a booked invoice to the customer. |
 
 ### Purchase invoices
 

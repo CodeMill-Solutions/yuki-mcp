@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Write tools no longer embed an XML declaration inside the SOAP body.** It
+  made the envelope invalid XML. This affected `process_sales_invoice`,
+  `process_purchase_invoice`, `process_journal` and `upsert_contact`.
+- **`process_sales_invoice` follows Yuki's documented XML layout:** element
+  order, a `Description` and nil `Category` on each product, numeric `VATType`
+  and `ContactType` of `Company` or `Person`.
+- **`process_sales_invoice` reports Yuki's real result.** Yuki answers HTTP 200
+  for rejected invoices, so `success` now comes from `TotalSucceeded` and
+  `TotalFailed`.
+
+### Added
+
+- `process=false` now works: `reference` is optional and must be omitted, and
+  Yuki assigns the number and leaves the invoice under "To be sent".
+- `productDescription` on invoice lines, so several lines can share one product.
+
 ## [1.7.1] - 2026-09-15
 
 Hardening of the `reload_keys` tool. No new features.
