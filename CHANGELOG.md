@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.0] - 2026-11-27
+
+The write tools reach Yuki for the first time, servers with several
+administrations read the right one, and the documentation follows the rename
+of Yuki to Nmbrs Accounting. Read the notes at the end before upgrading an
+agent that is allowed to write. Thanks to
+[@EnoxCode](https://github.com/EnoxCode) for the sales invoice fix
+([#3](https://github.com/CodeMill-Solutions/yuki-mcp/pull/3)) and to
+[@jvlieshout](https://github.com/jvlieshout) for tracking down the
+administration bug
+([#2](https://github.com/CodeMill-Solutions/yuki-mcp/issues/2)).
 
 ### Fixed
 
@@ -13,17 +23,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   made the envelope invalid XML. This affected `process_sales_invoice`,
   `process_purchase_invoice`, `process_journal` and `upsert_contact`.
 - **`process_sales_invoice` follows Yuki's documented XML layout:** element
-  order, a `Description` and nil `Category` on each product, numeric `VATType`
-  and `ContactType` of `Company` or `Person`.
+  order, a `Description` and nil `Category` on each product, and a numeric
+  `VATType`.
+- **All four named VAT types of `process_sales_invoice` are mapped.**
+  `NL_Normal`, `NL_Reduced`, `NL_Zero` and `NL_None` become Yuki's VAT types
+  1, 2, 4 and 0. `vatPercentage` now defaults to the Dutch rate that goes
+  with the type (21, 9, 0 and 0) instead of always 21, because Yuki cancels
+  an invoice whose type and percentage do not form an existing VAT code.
+  Other VAT types, such as reverse charge, can be passed as their numeric
+  Yuki code together with an explicit `vatPercentage`. An unknown `vatType`
+  is rejected before a request is spent on it.
+- **`ContactType` is sent only when the caller sets it**, as `Person` or
+  `Company`. When a contact is matched by its contact code, Yuki overwrites
+  the existing contact with the values in the XML, so a default could turn a
+  person into a company. The values `Debtor`, `Creditor` and `Both` are gone
+  from `contactType` of both invoice tools: Yuki's schemas never accepted
+  them.
 - **`process_sales_invoice` reports Yuki's real result.** Yuki answers HTTP 200
-  for rejected invoices, so `success` now comes from `TotalSucceeded` and
-  `TotalFailed`.
+  for rejected invoices, so `success` now comes from Yuki's own counters. The
+  response carries a `status` of `succeeded`, `failed`, `skipped` or
+  `unknown`; on the last two, check in Yuki before sending the invoice again.
+- **`process_journal` follows Yuki's journal schema.** Within an entry the
+  contact now comes before the date, and `contactName` and `contactCode` are
+  both sent when given. Every entry carries the mandatory `Description`,
+  which defaults to the subject. Before, only entries with a description and
+  without a contact produced a valid document.
+- **`list_documents`, `search_documents` and `download_document` no longer
+  silently read the default administration.** These Archive methods act on
+  the administration their API key belongs to, yet the tools always
+  authenticated with the server-wide key, so a search for a document in
+  another administration came back empty without an error. They now take an
+  optional `administrationId` and open the session with the key of that
+  administration; the result names the administration it came from. With a
+  keys file loaded and neither `administrationId` nor `YUKI_DOMAIN_ID`, the
+  tools return an error instead of guessing.
+- **`get_administrations` and `get_administration_id` take an optional
+  `administrationId`** to choose whose API key to use, so administrations
+  spread over several keys can be looked up through the server. Without it
+  they use `YUKI_API_KEY` as before, and the key of `YUKI_DOMAIN_ID` when no
+  server-wide key is set. That last setup used to fail with "No API key
+  configured".
+- **`search_relations` works without a `domainId`.** The Contact web service
+  takes Yuki's own domain ID, a different GUID from the administration ID.
+  The tool sent `YUKI_DOMAIN_ID`, which holds the administration ID, and Yuki
+  answered "Invalid domain ID". It now reads the domain from the session,
+  once per session, unless a `domainId` is passed; it takes an optional
+  `administrationId` to choose the API key, and its result names the domain
+  it searched. `upsert_contact` resolves its domain the same way.
+- **An empty folder or a search without matches now returns `count: 0`.**
+  `list_documents` and `search_documents` reported one document: the empty
+  result wrapper itself.
 
 ### Added
 
 - `process=false` now works: `reference` is optional and must be omitted, and
   Yuki assigns the number and leaves the invoice under "To be sent".
 - `productDescription` on invoice lines, so several lines can share one product.
+
+### Changed
+
+- **Documentation and package metadata now name Nmbrs Accounting.** Since
+  1 September 2026 Yuki in the Netherlands continues as Nmbrs Accounting; in
+  Belgium the product is still called Yuki. The README explains the rename
+  and lists the product name and API host per region. The npm description
+  now reads "MCP server for the Nmbrs Accounting (formerly Yuki) SOAP API"
+  and the keywords `nmbrs` and `nmbrs-accounting` were added. The package
+  name, the tool names, the `YUKI_*` variables and the API hosts are
+  unchanged, so there is nothing to migrate.
+- README and `.env.example` now point to Settings → Web services for the API
+  key (was "Settings → API"), with a link to the support article.
+- README lists CodeMill's other accounting MCP servers.
+- Server version string in `src/index.ts` bumped to `1.8.0`.
+
+### Notes
+
+- **Two write tools start writing with this release.** In every version up
+  to 1.7.1 the four write tools sent an XML declaration inside the SOAP body,
+  and Yuki answers such a request with HTTP 400 before processing it. From
+  this release `process_sales_invoice` and `process_journal` therefore write
+  to the administration for the first time. `npx -y` picks up the new version
+  at the next start, so review which tools your agents may call.
+- **`upsert_contact` and `process_purchase_invoice` still do not work.** The
+  first does not follow the document format of `UpdateContact`. The second
+  does not pass Yuki's schema validation and needs a Client-ID and Secret
+  for the Purchase web service. Both say so in their tool description; see
+  "Known limitations" in the README.
 
 ## [1.7.1] - 2026-09-15
 

@@ -1,6 +1,8 @@
 # yuki-mcp
 
-A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that connects AI agents to [Yuki](https://www.yukiworks.nl) accounting via Yuki's SOAP API.
+A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that connects AI agents to [Nmbrs Accounting](https://www.nmbrs.com/nl/accounting) — the accounting software formerly known as Yuki — via its SOAP API.
+
+> **Yuki is now Nmbrs Accounting.** Since 1 September 2026, Yuki in the Netherlands [continues as Nmbrs Accounting](https://www.nmbrs.com/nl/accounting/nmbrs-accounting-en). In Belgium the product is still called [Yuki](https://www.yukisoftware.com/be-nl/). Nothing changed for the API: the web services and API hosts are the same, so this server works with both and keeps its package name, tool names and `YUKI_*` settings. The rest of this README says "Yuki" for short.
 
 Built with Node.js, TypeScript, and [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk).
 
@@ -57,8 +59,8 @@ npm install @codemill-solutions/yuki-mcp
 ## Prerequisites
 
 - Node.js 20+
-- A Yuki account with API access enabled
-- Your Yuki API key (Yuki → Settings → API)
+- An account on Nmbrs Accounting (or Yuki in Belgium) with web service access enabled
+- Your web service API key: Settings → Web services (see [where to find the API key and administration ID](https://support.yuki.nl/en/support/solutions/articles/80000786451))
 
 ---
 
@@ -85,6 +87,8 @@ YUKI_REGION=nl                                # nl (default) or be
 ```
 
 `YUKI_DOMAIN_ID` can be left empty — the server starts without it. Call `get_administrations` to discover the correct GUID, then pass it via the `administrationId` parameter on individual tools.
+
+Despite its name, `YUKI_DOMAIN_ID` holds the **administration** ID: the `ID` that `get_administrations` returns, not its `DomainID`. Yuki's domain ID is a different GUID, and the server looks it up by itself where it is needed.
 
 ### 3. Build
 
@@ -122,6 +126,13 @@ the Dutch host but then fails on **every** data call with:
 ```
 SOAP Fault: Domain has no active database
 ```
+
+The 2026 rename in the Netherlands changed the product name, not the API hosts:
+
+| Region | Product name | API host |
+| --- | --- | --- |
+| `nl` | Nmbrs Accounting (formerly Yuki) | `api.yukiworks.nl` |
+| `be` | Yuki | `api.yukiworks.be` |
 
 Set the region to match your administration:
 
@@ -196,7 +207,9 @@ Plain string entries keep using the server-wide region, so existing files work u
 YUKI_API_KEYS_FILE=/path/to/your/api-keys.json
 ```
 
-When a keys file is present, `YUKI_API_KEY` becomes optional — the file keys are used for all administration-specific tool calls, and `YUKI_API_KEY` (if set) serves as the fallback for tools that don't target a specific administration (e.g. `get_administrations`).
+When a keys file is present, `YUKI_API_KEY` becomes optional — the file keys are used for all administration-specific tool calls, and `YUKI_API_KEY` (if set) serves as the fallback for tools that don't target a specific administration (e.g. `get_administrations`). Those tools take an optional `administrationId` to use the key of that administration instead; without a server-wide key they use the key of `YUKI_DOMAIN_ID`.
+
+`list_documents`, `search_documents` and `download_document` read the administration their API key belongs to. With a keys file they therefore need an `administrationId` (or `YUKI_DOMAIN_ID`), and their result names the administration it came from.
 
 If neither `YUKI_API_KEY` nor a keys file is found at startup, the server logs a warning but continues running — tools will return an error when called.
 
@@ -224,23 +237,23 @@ Typical flow for a sibling tool that has just minted a new key:
 
 | Tool | Description |
 |------|-------------|
-| `get_administrations` | List all administrations (companies) for this API key. **Run this first** to find the correct `administrationId`. |
-| `get_administration_id` | Look up an administration's GUID by its exact name. Useful when you know the name but not the GUID. |
+| `get_administrations` | List all administrations (companies) for this API key. **Run this first** to find the correct `administrationId`. With a keys file, pass `administrationId` to list what the key of that administration can see. |
+| `get_administration_id` | Look up an administration's GUID by its exact name. Useful when you know the name but not the GUID. Takes the same optional `administrationId` to choose the API key. |
 | `reload_keys` | Re-read the `administrationId → apiKey` JSON file (including per-administration `region` overrides) from its configured location without restarting the server. Takes no arguments. Returns a diff of added/updated/removed IDs and invalidates affected sessions. Use after an external `create_api_key` flow. |
 
 ### Relations
 
 | Tool | Key parameters | Description |
 |------|----------------|-------------|
-| `search_relations` | `searchValue`, `searchOption?`, `active?`, `pageNumber?` | Search customers and suppliers by name, code, VAT number, email, etc. Returns up to 100 results per page. |
-| `upsert_contact` | `fullName`, `contactCode?`, `contactType?`, … | Create or update a contact. When `contactCode` matches an existing record it is updated; otherwise a new contact is created. |
+| `search_relations` | `searchValue`, `searchOption?`, `active?`, `pageNumber?`, `administrationId?` | Search customers and suppliers by name, code, VAT number, email, etc. Returns up to 100 results per page. |
+| `upsert_contact` | `fullName`, `contactCode?`, `contactType?`, … | Create or update a contact. When `contactCode` matches an existing record it is updated; otherwise a new contact is created. **Not working yet** — see [Known limitations](#known-limitations). |
 
 ### Sales invoices
 
 | Tool | Key parameters | Description |
 |------|----------------|-------------|
 | `get_sales_invoices` | `dateOutstanding?`, `sortOrder?`, `includeBankTransactions?` | Retrieve outstanding (unpaid) sales invoices. |
-| `process_sales_invoice` | `reference?`, `subject`, `date`, `dueDate`, `contact`, `lines`, `process?` | Create and book a new sales invoice, or use `process=false` without a `reference` to leave it under "To be sent". Optionally email a booked invoice to the customer. |
+| `process_sales_invoice` | `reference?`, `subject`, `date`, `dueDate`, `contact`, `lines`, `process?` | Create and book a new sales invoice, or use `process=false` without a `reference` to leave it under "To be sent". Optionally email a booked invoice to the customer. Returns a `status` of `succeeded`, `failed`, `skipped` or `unknown`. |
 
 ### Purchase invoices
 
@@ -248,7 +261,7 @@ Typical flow for a sibling tool that has just minted a new key:
 |------|----------------|-------------|
 | `get_missing_invoices` | `types?` | Retrieve bank payments that still need a matching purchase invoice — equivalent to "Postbus → Ontbrekende facturen" in the Yuki web interface. Works for Dutch and Belgian administrations; the response includes `typesSeen`, and an unexpected `<Type>` label can be passed via `types`. |
 | `get_purchase_invoices` | `dateOutstanding?`, `sortOrder?`, `includeBankTransactions?` | Retrieve outstanding (unpaid) purchase invoices. |
-| `process_purchase_invoice` | `date`, `invoiceAmount`, `invoiceVatAmount`, `contact`, `lines` | Book an incoming purchase invoice. Accepts an optional PDF as base64. |
+| `process_purchase_invoice` | `date`, `invoiceAmount`, `invoiceVatAmount`, `contact`, `lines` | Book an incoming purchase invoice. Accepts an optional PDF as base64. **Not working yet** — see [Known limitations](#known-limitations). |
 
 ### Transactions & bank
 
@@ -256,7 +269,7 @@ Typical flow for a sibling tool that has just minted a new key:
 |------|----------------|-------------|
 | `get_transactions` | `glAccountCode`, `startDate`, `endDate` | Retrieve journal entries for a GL account (e.g. a bank account) in a date range. Use `get_gl_accounts` to find the right code. |
 | `get_transaction_details` | `reference` | Check if an outstanding item still exists and retrieve its current status. |
-| `process_journal` | `subject`, `entries[]` | Post a general journal entry (memoriaal). All entry amounts must sum to exactly 0. Used for bank reconciliation, corrections, and custom bookings. |
+| `process_journal` | `subject`, `entries[]` | Post a general journal entry (memoriaal). All entry amounts must sum to exactly 0, and so must the entries of each date. Used for bank reconciliation, corrections, and custom bookings. |
 
 ### Accounting
 
@@ -285,10 +298,10 @@ Richer read-only views from the `AccountingInfo.asmx` service — not available 
 | `upload_document` | `fileName`, `dataBase64`, `folder?`, `amount?` | Upload a PDF to the Yuki archive by passing its content as a base64 string. Use `get_document_folders` first to find the right folder ID. |
 | `upload_document_from_path` | `filePath`, `fileName?`, `folder?`, `amount?` | Upload a PDF from a local file path. Reads and encodes the file internally — preferred over `upload_document` when the file is available on disk. Validates that the file exists and is a valid PDF before uploading. |
 | `get_document_folders` | — | List all archive folders available in the administration. |
-| `list_documents` | `folderId` | List documents in a specific archive folder. Returns document IDs, file names, dates, and amounts. |
-| `search_documents` | `searchText` | Full-text search across all archived documents (file names, amounts, OCR content). |
+| `list_documents` | `folderId`, `administrationId?` | List documents in a specific archive folder. Returns document IDs, file names, dates, and amounts. |
+| `search_documents` | `searchText`, `administrationId?` | Full-text search across all archived documents (file names, amounts, OCR content). |
 | `get_document` | `documentId` | Retrieve metadata for a single archived document by its ID (name, folder, date, amount, status). |
-| `download_document` | `documentId` | Download an archived document as a base64-encoded string. |
+| `download_document` | `documentId`, `administrationId?` | Download an archived document as a base64-encoded string. |
 | `get_cost_categories` | — | List available GL cost categories for use as the `costCategory` parameter in upload tools. |
 
 ### Backoffice
@@ -297,6 +310,15 @@ Richer read-only views from the `AccountingInfo.asmx` service — not available 
 |------|----------------|-------------|
 | `get_workflow` | `administrationId?` | Retrieve backoffice workflow items — documents that could not be processed automatically and are awaiting review by the accountant. |
 | `get_outstanding_questions` | `administrationId?` | Retrieve outstanding questions raised by the accountant that require a response before the related documents can be processed. |
+
+---
+
+## Known limitations
+
+- **`upsert_contact` does not work yet.** It sends a document that does not follow the format Yuki documents for `UpdateContact`: a different root element, namespace and field names. The invoice tools match or create their contact themselves, so they do not depend on it.
+- **`process_purchase_invoice` does not work yet.** Its XML does not pass Yuki's schema validation, which Yuki runs before it processes anything. The Purchase web service also needs a Client-ID and Secret next to the API key, which this server cannot send yet. Use `upload_document` to hand a purchase invoice to Yuki in the meantime.
+
+Neither tool worked in earlier versions either: up to 1.7.1 Yuki rejected every write request (see the [changelog](CHANGELOG.md)). A fix for both is planned.
 
 ---
 
@@ -354,7 +376,8 @@ src/
     ├── documents.ts          # upload_document, upload_document_from_path,
     │                         # get_document_folders, list_documents, search_documents,
     │                         # get_document, download_document, get_cost_categories
-    └── backoffice.ts         # get_workflow, get_outstanding_questions
+    ├── backoffice.ts         # get_workflow, get_outstanding_questions
+    └── session-scope.ts      # shared helper: opens a session with the API key of the right administration
 
 scripts/
 └── test-agent.ts             # Agent test harness (Claude + MCP client loop)
@@ -369,11 +392,15 @@ Yuki uses a two-step authentication pattern:
 
 `YukiClient.getSessionID(adminId?)` handles this transparently. When called with an `administrationId`, it resolves the matching API key from the loaded keys map. Session IDs are cached per API key for the lifetime of the process — `Authenticate` is only called once per key, not once per tool call.
 
+The Contact service is the exception to "pass the administration ID": it takes Yuki's domain ID, a different GUID. `search_relations` and `upsert_contact` read it from the session with `GetCurrentDomain`, once per session, unless the caller passes a `domainId`.
+
 > **Note:** Parameter casing differs across Yuki's services — `sessionId` (lowercase d) on `Sales.asmx` and `Purchase.asmx`; `sessionID` (uppercase D) on `Accounting.asmx`, `AccountingInfo.asmx`, `Contact.asmx`, and `Archive.asmx`. This is handled per-tool.
 
 ### XML documents
 
 Write tools (`process_sales_invoice`, `process_purchase_invoice`, `process_journal`, `upsert_contact`) pass structured data to Yuki as an XML string inside the `xmlDoc` SOAP parameter. The `XmlValue` wrapper ensures this XML is embedded raw (not entity-encoded) in the SOAP envelope. All user-supplied values are XML-escaped via `escapeXml()`.
+
+Two rules hold for every such document. It carries no XML declaration of its own, because Yuki answers HTTP 400 to a declaration inside the SOAP body. And its elements follow the order of Yuki's published schema (`http://www.yukiworks.nl/schemas/SalesInvoices.xsd`, `Journal.xsd`, …), because Yuki validates the document as a sequence before processing it.
 
 ---
 
@@ -394,7 +421,10 @@ Design agent workflows to fetch broad lists once and reference them from the age
 | `SOAP Fault: Authentication failed` | `YUKI_API_KEY` is incorrect or API access is not enabled in Yuki Settings |
 | `No API key found for administration …` | The `administrationId` passed to the tool is not in the loaded keys file — check `YUKI_API_KEYS_FILE` |
 | `API keys file at … is not valid JSON` | The keys file exists but does not parse — look for a trailing comma or stray character. The file must be a single JSON object mapping `administrationId` → key |
+| `SOAP Fault: Invalid domain ID` | `domainId` was given an administration ID. Leave it out and the server uses the domain of the session, or pass the `DomainID` that `get_administrations` returns |
 | `SOAP Fault: Administration not found` | Wrong `administrationId` — run `get_administrations` to get the correct GUID |
+| `administrationId is required when a keys file is loaded` | `list_documents`, `search_documents` and `download_document` read the administration their API key belongs to — pass `administrationId` or set `YUKI_DOMAIN_ID` |
+| `process_sales_invoice` returns `status: "skipped"` or `"unknown"` | Yuki did not confirm the invoice. Check in Yuki whether it exists before sending it again: a retry can book it twice |
 | `Journal entries do not balance` | Amounts in `process_journal` don't sum to 0 — check debit/credit signs |
 | `HTTP 500 from api.yukiworks.nl` | Usually a wrong XML namespace or malformed `xmlDoc` — check the WSDL at `https://api.yukiworks.nl/ws/{Service}.asmx?wsdl` |
 | `File does not appear to be a PDF` | The file at `filePath` does not start with the `%PDF` magic bytes — check you're pointing at a valid PDF |
@@ -413,7 +443,11 @@ Our services include:
 - **API integrations** — connecting your application with other systems and external platforms via smart API connections.
 - **Mobile apps** — iOS and Android apps as a logical extension of your web application(s).
 
-`yuki-mcp` is one of our open-source integrations, making Yuki's accounting platform accessible to AI agents through the Model Context Protocol.
+`yuki-mcp` is one of our open-source MCP servers for accounting software, making Nmbrs Accounting (Yuki) accessible to AI agents through the Model Context Protocol. The others:
+
+- [wefact-mcp](https://github.com/CodeMill-Solutions/wefact-mcp) — Nmbrs Invoicing (formerly WeFact)
+- [e-boekhouden-mcp](https://github.com/CodeMill-Solutions/e-boekhouden-mcp) — e-Boekhouden
+- [twinfield-mcp](https://github.com/CodeMill-Solutions/twinfield-mcp) — Twinfield
 
 📧 [info@codemill.dev](mailto:info@codemill.dev)
 🌐 [codemill.dev](https://codemill.dev/en/)

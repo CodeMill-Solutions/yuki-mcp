@@ -1,12 +1,36 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { YukiClient, XmlValue, escapeXml } from '../yuki-client.js';
+import { openScopedSession, sessionScope } from './session-scope.js';
+
+/** Description of the optional `domainId` on the relation tools. */
+const DOMAIN_ID_DESCRIPTION =
+  'Yuki domain ID: the DomainID that get_administrations returns, not the administration ID. ' +
+  'Omit it to use the domain of the session, which is right unless one API key spans several domains.';
+
+/** Description of the optional `administrationId` on the relation tools. */
+const ADMINISTRATION_ID_DESCRIPTION =
+  'Administration ID (GUID) whose API key to use. Defaults to YUKI_DOMAIN_ID env var.';
+
+/**
+ * Explain Yuki's "Invalid domain ID" when the caller supplied the ID. The usual cause is an
+ * administration ID in the `domainId` field: the two are different GUIDs.
+ */
+function withDomainHint(message: string, domainId: string | undefined): string {
+  if (!domainId || !/invalid domain id/i.test(message)) return message;
+  return (
+    `${message} (domainId must be Yuki's DomainID as get_administrations returns it, not an administration ID. ` +
+    'Omit domainId to use the domain of the session.)'
+  );
+}
 
 /**
  * Register tools for working with Yuki relations (contacts).
  *
  * Relations are debitors (customers) and creditors (suppliers) in Yuki.
- * The Contact service uses domainID (the same GUID as your administrationID).
+ * The Contact service takes Yuki's domainID, which is a different GUID from the administrationID
+ * that the other services take. The tools read it from the session (GetCurrentDomain) unless the
+ * caller passes one.
  *
  * Yuki service: Contact.asmx
  * Method:       SearchContacts(sessionID, domainID, searchOption, searchValue,
@@ -74,19 +98,17 @@ export function registerRelationTools(server: McpServer, client: YukiClient): vo
           .optional()
           .default(1)
           .describe('Page number for pagination (100 results per page).'),
-        domainId: z.string().optional().describe('Domain ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
+        domainId: z.string().optional().describe(DOMAIN_ID_DESCRIPTION),
+        administrationId: z.string().optional().describe(ADMINISTRATION_ID_DESCRIPTION),
       },
     },
-    async ({ searchValue, searchOption, active, pageNumber, domainId }) => {
+    async ({ searchValue, searchOption, active, pageNumber, domainId, administrationId }) => {
       try {
-        const domain = domainId ?? client.defaultDomainId;
-        if (!domain) {
-          throw new Error('domainId is required (or set YUKI_DOMAIN_ID env var)');
-        }
+        const session = await openScopedSession(client, administrationId);
+        const { sessionID } = session;
+        // Contact.asmx takes Yuki's domain ID, which is not the administration ID
+        const domain = domainId ?? (await client.getDomainID(sessionID));
 
-        const sessionID = await client.getSessionID(domain);
-
-        // Note: Contact.asmx uses 'domainID', not 'administrationID'
         const result = await client.callSoap({
           service: 'Contact.asmx',
           method: 'SearchContacts',
@@ -111,6 +133,8 @@ export function registerRelationTools(server: McpServer, client: YukiClient): vo
               text: JSON.stringify(
                 {
                   success: true,
+                  ...sessionScope(session),
+                  domainId: domain,
                   count: relations.length,
                   page: pageNumber ?? 1,
                   relations,
@@ -122,7 +146,7 @@ export function registerRelationTools(server: McpServer, client: YukiClient): vo
           ],
         };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = withDomainHint(err instanceof Error ? err.message : String(err), domainId);
         return {
           content: [
             {
@@ -163,7 +187,9 @@ export function registerContactWriteTools(server: McpServer, client: YukiClient)
       description:
         'Create or update a contact (customer or supplier) in Yuki. ' +
         'When contactCode matches an existing record it will be updated; otherwise a new contact is created. ' +
-        'Returns the Yuki response with the contact ID.',
+        'Returns the Yuki response with the contact ID. ' +
+        'KNOWN LIMITATION in this version: the request does not follow the format Yuki documents for ' +
+        'UpdateContact, so do not rely on this tool. The invoice tools match or create their contact themselves.',
       inputSchema: {
         contactCode: z
           .string()
@@ -191,7 +217,8 @@ export function registerContactWriteTools(server: McpServer, client: YukiClient)
         bankAccount: z.string().optional().describe('IBAN bank account number'),
         bic: z.string().optional().describe('BIC / SWIFT code'),
         website: z.string().optional(),
-        domainId: z.string().optional().describe('Domain ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
+        domainId: z.string().optional().describe(DOMAIN_ID_DESCRIPTION),
+        administrationId: z.string().optional().describe(ADMINISTRATION_ID_DESCRIPTION),
       },
     },
     async ({
@@ -215,12 +242,13 @@ export function registerContactWriteTools(server: McpServer, client: YukiClient)
       bic,
       website,
       domainId,
+      administrationId,
     }) => {
       try {
-        const domain = domainId ?? client.defaultDomainId;
-        if (!domain) throw new Error('domainId is required (or set YUKI_DOMAIN_ID env var)');
-
-        const sessionID = await client.getSessionID(domain);
+        const session = await openScopedSession(client, administrationId);
+        const { sessionID } = session;
+        // Contact.asmx takes Yuki's domain ID, which is not the administration ID
+        const domain = domainId ?? (await client.getDomainID(sessionID));
         const xmlDoc = buildContactXml({
           contactCode,
           fullName,
@@ -256,11 +284,18 @@ export function registerContactWriteTools(server: McpServer, client: YukiClient)
 
         return {
           content: [
-            { type: 'text' as const, text: JSON.stringify({ success: true, fullName, contactCode, result }, null, 2) },
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                { success: true, ...sessionScope(session), domainId: domain, fullName, contactCode, result },
+                null,
+                2,
+              ),
+            },
           ],
         };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = withDomainHint(err instanceof Error ? err.message : String(err), domainId);
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: message }, null, 2) }],
           isError: true,

@@ -292,6 +292,13 @@ export class YukiClient {
    */
   private readonly sessionHosts = new Map<string, string>();
 
+  /**
+   * Yuki domain ID per live session ID, as reported by GetCurrentDomain. The
+   * Contact web service takes this ID, which is a different GUID from the
+   * administration ID that every other service takes.
+   */
+  private readonly sessionDomains = new Map<string, string>();
+
   constructor(
     apiKey: string,
     domainId: string,
@@ -375,14 +382,48 @@ export class YukiClient {
     } else {
       this.sessionCache.clear();
       this.sessionHosts.clear();
+      this.sessionDomains.clear();
     }
   }
 
-  /** Drop the cached session for an API key together with its host binding. */
+  /** Drop the cached session for an API key together with its host and domain bindings. */
   private evictSession(apiKey: string): void {
     const sessionID = this.sessionCache.get(apiKey);
-    if (sessionID !== undefined) this.sessionHosts.delete(sessionID);
+    if (sessionID !== undefined) {
+      this.sessionHosts.delete(sessionID);
+      this.sessionDomains.delete(sessionID);
+    }
     this.sessionCache.delete(apiKey);
+  }
+
+  /**
+   * The ID of the Yuki domain a session belongs to, as GetCurrentDomain reports it.
+   *
+   * Contact.asmx takes this ID in its `domainID` parameter. It is not the
+   * administration ID: a domain is the Yuki environment that holds one or more
+   * administrations, and the two are different GUIDs. Costs one request per
+   * session; the answer is cached with the session.
+   */
+  async getDomainID(sessionID: string): Promise<string> {
+    const cached = this.sessionDomains.get(sessionID);
+    if (cached) return cached;
+
+    const result = await this.callSoap({
+      service: 'Accounting.asmx',
+      method: 'GetCurrentDomain',
+      params: { sessionID },
+    });
+
+    // <Domains><Domain ID="…"><Name>…</Name></Domain></Domains>
+    const domains = (result as Record<string, unknown> | null)?.['Domains'] as Record<string, unknown> | undefined;
+    const domain = Array.isArray(domains?.['Domain']) ? (domains['Domain'] as unknown[])[0] : domains?.['Domain'];
+    const id = (domain as Record<string, unknown> | undefined)?.['@_ID'];
+    if (typeof id !== 'string' || !id) {
+      throw new Error('Yuki did not report a domain for this session (GetCurrentDomain)');
+    }
+
+    this.sessionDomains.set(sessionID, id);
+    return id;
   }
 
   /**
@@ -409,6 +450,16 @@ export class YukiClient {
   /** Number of administration-specific API keys loaded from the keys file. */
   get apiKeyCount(): number {
     return this.apiKeyMap.size;
+  }
+
+  /** True when a server-wide API key (`YUKI_API_KEY`) is configured. */
+  get hasDefaultApiKey(): boolean {
+    return this.apiKey !== '';
+  }
+
+  /** True when the keys file holds an API key for this administration. */
+  hasKeyFor(adminId: string): boolean {
+    return this.apiKeyMap.has(adminId);
   }
 
   /**

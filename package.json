@@ -1,7 +1,7 @@
 {
   "name": "@codemill-solutions/yuki-mcp",
-  "version": "1.7.1",
-  "description": "MCP server for the Yuki accounting SOAP API",
+  "version": "1.8.0",
+  "description": "MCP server for the Nmbrs Accounting (formerly Yuki) SOAP API",
   "license": "MIT",
   "author": "CodeMill Solutions B.V.",
   "keywords": [
@@ -9,6 +9,8 @@
     "model-context-protocol",
     "yuki",
     "yukiworks",
+    "nmbrs",
+    "nmbrs-accounting",
     "accounting",
     "boekhouden",
     "soap",

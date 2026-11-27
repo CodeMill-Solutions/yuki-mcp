@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { readFileSync, existsSync } from 'fs';
 import { basename } from 'path';
 import { YukiClient } from '../yuki-client.js';
+import { openScopedSession, sessionScope } from './session-scope.js';
 
 /**
  * Register tools for uploading documents to the Yuki archive.
@@ -276,7 +277,8 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
    * list_documents
    *
    * List documents stored in a specific archive folder.
-   * Session-scoped: no administrationID needed (determined by the API key / domain).
+   * Session-scoped: DocumentsInFolder takes no administrationID, so the administration is selected
+   * by the API key the session is opened with (see openScopedSession).
    *
    * WSDL signature (Archive.asmx · DocumentsInFolder):
    *   sessionID, folderID, sortOrder, startDate, endDate, numberOfRecords, startRecord
@@ -321,11 +323,16 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
           .optional()
           .default(1)
           .describe('1-based offset for pagination (default 1).'),
+        administrationId: z
+          .string()
+          .optional()
+          .describe('Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
       },
     },
-    async ({ folderId, sortOrder, startDate, endDate, numberOfRecords, startRecord }) => {
+    async ({ folderId, sortOrder, startDate, endDate, numberOfRecords, startRecord, administrationId }) => {
       try {
-        const sessionID = await client.getSessionID();
+        const session = await openScopedSession(client, administrationId);
+        const { sessionID } = session;
         const start = startDate ? `${startDate}T00:00:00` : '0001-01-01T00:00:00';
         const end   = endDate   ? `${endDate}T23:59:59`   : `${new Date().toISOString().split('T')[0]}T23:59:59`;
 
@@ -349,7 +356,11 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
           content: [
             {
               type: 'text' as const,
-              text: JSON.stringify({ success: true, folderId, count: documents.length, documents }, null, 2),
+              text: JSON.stringify(
+                { success: true, ...sessionScope(session), folderId, count: documents.length, documents },
+                null,
+                2,
+              ),
             },
           ],
         };
@@ -369,7 +380,8 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
    * search_documents
    *
    * Search archived documents by text within a specific folder (and optionally tab).
-   * Session-scoped: no administrationID needed.
+   * Session-scoped: SearchDocuments takes no administrationID, so the administration is selected
+   * by the API key the session is opened with (see openScopedSession).
    *
    * WSDL signature (Archive.asmx · SearchDocuments):
    *   sessionID, searchOption, searchText, folderID, tabID,
@@ -435,11 +447,16 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
           .optional()
           .default(1)
           .describe('1-based offset for pagination (default 1).'),
+        administrationId: z
+          .string()
+          .optional()
+          .describe('Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
       },
     },
-    async ({ searchText, folderId, tabId, searchOption, sortOrder, startDate, endDate, numberOfRecords, startRecord }) => {
+    async ({ searchText, folderId, tabId, searchOption, sortOrder, startDate, endDate, numberOfRecords, startRecord, administrationId }) => {
       try {
-        const sessionID = await client.getSessionID();
+        const session = await openScopedSession(client, administrationId);
+        const { sessionID } = session;
         // Use '0001-01-01' as Yuki's sentinel for "all dates" (no date filter).
         // Use -1 for folderID/tabID to search across all folders/tabs.
         const start = startDate ? `${startDate}T00:00:00` : '0001-01-01T00:00:00';
@@ -469,7 +486,7 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
             {
               type: 'text' as const,
               text: JSON.stringify(
-                { success: true, searchText, folderId, count: documents.length, documents },
+                { success: true, ...sessionScope(session), searchText, folderId, count: documents.length, documents },
                 null,
                 2,
               ),
@@ -565,13 +582,18 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
         'Returns fileName and fileDataBase64.',
       inputSchema: {
         documentId: z.string().describe('Yuki document ID (from list_documents or search_documents).'),
+        administrationId: z
+          .string()
+          .optional()
+          .describe('Administration ID (GUID). Defaults to YUKI_DOMAIN_ID env var.'),
       },
     },
-    async ({ documentId }) => {
+    async ({ documentId, administrationId }) => {
       try {
-        const sessionID = await client.getSessionID();
+        const session = await openScopedSession(client, administrationId);
+        const { sessionID } = session;
 
-        // DocumentBinaryData does not take administrationID
+        // DocumentBinaryData does not take administrationID: the session's API key selects it
         const result = await client.callSoap({
           service: 'Archive.asmx',
           method: 'DocumentBinaryData',
@@ -586,7 +608,11 @@ export function registerDocumentTools(server: McpServer, client: YukiClient): vo
           content: [
             {
               type: 'text' as const,
-              text: JSON.stringify({ success: true, documentId, fileName, fileDataBase64: fileData }, null, 2),
+              text: JSON.stringify(
+                { success: true, ...sessionScope(session), documentId, fileName, fileDataBase64: fileData },
+                null,
+                2,
+              ),
             },
           ],
         };
@@ -728,8 +754,10 @@ function normalizeDocuments(result: unknown): unknown[] {
   const itemTags = ['Document', 'SearchResult', 'Row'];
 
   for (const wrapper of wrappers) {
+    if (!(wrapper in rec)) continue;
     const c = rec[wrapper];
-    if (!c) continue;
+    // An empty folder, or a search without matches, comes back as an empty wrapper element
+    if (c === '' || c === null || c === undefined) return [];
     if (Array.isArray(c)) return c;
     const inner = c as Record<string, unknown>;
     for (const tag of itemTags) {

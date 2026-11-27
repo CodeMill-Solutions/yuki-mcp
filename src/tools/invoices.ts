@@ -267,8 +267,122 @@ const ContactSchema = z.object({
   cocNumber: z.string().optional(),
   bankAccount: z.string().optional().describe('IBAN bank account number'),
   bic: z.string().optional(),
-  contactType: z.enum(['Debtor', 'Creditor', 'Both', 'Person']).optional(),
+  contactType: z
+    .enum(['Person', 'Company'])
+    .optional()
+    .describe(
+      'Yuki contact type. Set Company for a business: Yuki creates a new contact as Person when this is omitted. ' +
+        'Leave it out to keep the type of an existing contact unchanged.',
+    ),
 });
+
+/**
+ * Yuki's numeric VAT types for the named `vatType` values of process_sales_invoice, with the Dutch
+ * rate that goes with each. Yuki looks up the VAT code by the combination of type and percentage and
+ * cancels the invoice when that combination does not exist, so the two have to agree.
+ *
+ * Source: the VATType table in Yuki's "Sales - Functional description of fields sales invoices XML".
+ */
+const SALES_VAT_TYPES = new Map<string, { code: number; percentage: number }>([
+  ['NL_Normal', { code: 1, percentage: 21 }], // high VAT rate
+  ['NL_Reduced', { code: 2, percentage: 9 }], // low VAT rate
+  ['NL_Zero', { code: 4, percentage: 0 }], // VAT 0%
+  ['NL_None', { code: 0, percentage: 0 }], // exempt from VAT
+]);
+
+/**
+ * Resolve a line's `vatType` and `vatPercentage` to the numeric VATType and the percentage Yuki
+ * expects. A named type brings its own default percentage; a numeric Yuki VAT type is passed
+ * through and needs an explicit percentage, because its rate cannot be guessed.
+ */
+function resolveSalesVat(
+  vatType: string | undefined,
+  vatPercentage: number | undefined,
+): { code: number; percentage: number } {
+  const type = (vatType ?? 'NL_Normal').trim();
+  const named = SALES_VAT_TYPES.get(type);
+  if (named) return { code: named.code, percentage: vatPercentage ?? named.percentage };
+
+  if (!/^\d+$/.test(type)) {
+    throw new Error(
+      `Unknown vatType "${type}". Use ${[...SALES_VAT_TYPES.keys()].join(', ')}, ` +
+        'or a numeric Yuki VAT type from Settings > VAT rates.',
+    );
+  }
+  if (vatPercentage === undefined) {
+    throw new Error(`vatPercentage is required with the numeric vatType ${type}`);
+  }
+  return { code: Number(type), percentage: vatPercentage };
+}
+
+/** What Yuki did with a submitted sales invoice, according to its own counters. */
+type SalesInvoiceOutcome = {
+  status: 'succeeded' | 'failed' | 'skipped' | 'unknown';
+  message?: string;
+};
+
+/**
+ * Read Yuki's verdict from a ProcessSalesInvoices response. Yuki answers HTTP 200 whatever happened
+ * to the invoice, so the counters in <SalesInvoicesImportResponse> decide — not the transport.
+ *
+ * A skipped invoice and a response without counters are reported as such instead of as a plain
+ * failure: in both cases the caller must look in Yuki before sending the invoice again, or it may
+ * end up twice in the books.
+ */
+function readSalesInvoiceOutcome(result: unknown): SalesInvoiceOutcome {
+  const succeeded = readCounter(result, 'TotalSucceeded');
+  const failed = readCounter(result, 'TotalFailed');
+  const skipped = readCounter(result, 'TotalSkipped') ?? 0;
+
+  if (succeeded === undefined || failed === undefined) {
+    return {
+      status: 'unknown',
+      message:
+        "Yuki's response did not contain the TotalSucceeded and TotalFailed counters, so the outcome is unknown. " +
+        'Check in Yuki whether the invoice exists before sending it again.',
+    };
+  }
+  if (failed > 0) return { status: 'failed', message: 'Yuki rejected the invoice. See Message in result.' };
+  if (succeeded > 0) return { status: 'succeeded' };
+  if (skipped > 0) {
+    return {
+      status: 'skipped',
+      message:
+        'Yuki skipped the invoice and did not create it. See Message in result, and check in Yuki whether an ' +
+        'invoice with this reference already exists before sending it again.',
+    };
+  }
+  return { status: 'failed', message: 'Yuki processed no invoice. See result.' };
+}
+
+/** Read a counter such as TotalFailed from a parsed Yuki response, or from one that is still raw XML. */
+function readCounter(result: unknown, name: string): number | undefined {
+  if (typeof result === 'string') {
+    const match = new RegExp(`<${name}\\b[^>]*>\\s*(\\d+)\\s*<`).exec(result);
+    return match ? Number(match[1]) : undefined;
+  }
+  const value = findProperty(result, name);
+  // fast-xml-parser wraps the text of an element that also carries attributes in { "#text": … }
+  const text = value !== null && typeof value === 'object' ? (value as Record<string, unknown>)['#text'] : value;
+  if (typeof text === 'number' && Number.isInteger(text)) return text;
+  if (typeof text === 'string' && /^\d+$/.test(text.trim())) return Number(text.trim());
+  return undefined;
+}
+
+/** Breadth-first search for a property by name, so a counter near the root wins over anything nested deeper. */
+function findProperty(root: unknown, name: string): unknown {
+  let level: unknown[] = [root];
+  for (let depth = 0; depth < 6 && level.length > 0; depth++) {
+    const next: unknown[] = [];
+    for (const node of level) {
+      if (node === null || typeof node !== 'object') continue;
+      if (!Array.isArray(node) && name in node) return (node as Record<string, unknown>)[name];
+      next.push(...Object.values(node));
+    }
+    level = next;
+  }
+  return undefined;
+}
 
 // ── process_sales_invoice ─────────────────────────────────────────────────────
 
@@ -295,10 +409,12 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
     'process_sales_invoice',
     {
       description:
-        'Create and book a new sales invoice in Yuki. ' +
+        'Create a sales invoice in Yuki: booked at once (process=true, needs a reference) or left under ' +
+        '"To be sent" (process=false, Yuki assigns the number). ' +
         'Accepts invoice header, contact, and line items. ' +
-        'Optionally sends the invoice to the customer by email. ' +
-        'Returns the Yuki response including the assigned document ID.',
+        'Optionally sends a booked invoice to the customer by email. ' +
+        "Returns success, a status (succeeded, failed, skipped or unknown) and Yuki's response. " +
+        'On skipped or unknown, check in Yuki before sending the invoice again.',
       inputSchema: {
         reference: z
           .string()
@@ -316,18 +432,32 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
               description: z.string().describe('Line item description'),
               quantity: z.number().optional().default(1).describe('Quantity (default 1)'),
               salesPrice: z.number().describe('Unit price excluding VAT'),
-              vatPercentage: z.number().optional().default(21).describe('VAT percentage (default 21)'),
+              vatPercentage: z
+                .number()
+                .optional()
+                .describe(
+                  'VAT percentage. Defaults to the Dutch rate of a named vatType (21, 9 or 0). ' +
+                    'Pass it for any other rate, e.g. 6 or 12 in Belgium.',
+                ),
               vatIncluded: z.boolean().optional().default(false).describe('Whether salesPrice already includes VAT'),
               vatType: z
                 .string()
                 .optional()
                 .default('NL_Normal')
-                .describe('VAT type code: NL_Normal (21%), NL_Reduced (9%), NL_Zero (0%), NL_None (exempt)'),
+                .describe(
+                  'VAT type: NL_Normal (high rate), NL_Reduced (low rate), NL_Zero (0%) or NL_None (exempt). ' +
+                    'For anything else pass the numeric Yuki VAT type from Settings > VAT rates ' +
+                    '(e.g. 17 for reverse charge) together with vatPercentage.',
+                ),
               glAccountCode: z.string().optional().describe('GL account code to post this line to'),
               productDescription: z
                 .string()
                 .optional()
-                .describe('Yuki product name. Products are matched on this; defaults to the line description.'),
+                .describe(
+                  'Name of the Yuki sales item (max 60 characters). Yuki matches on it and creates the sales item ' +
+                    'when it does not exist yet. Defaults to the line description, so every new description adds ' +
+                    'a sales item: pass one fixed name to reuse the same item across lines and invoices.',
+                ),
               productReference: z.string().optional().describe('Product/SKU reference code'),
             }),
           )
@@ -380,7 +510,7 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
         }
         if (!doProcess && emailToCustomer) throw new Error('emailToCustomer needs process=true');
 
-        const sessionId = await client.getSessionID(adminId);
+        // Build the document first: an invalid VAT type should fail before a request is spent on it
         const xmlDoc = buildSalesInvoiceXml({
           reference,
           subject,
@@ -394,6 +524,7 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
           emailToCustomer,
           remarks,
         });
+        const sessionId = await client.getSessionID(adminId);
 
         // Sales.asmx uses sessionId / administrationId (lowercase d)
         const result = await client.callSoap({
@@ -407,13 +538,16 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
         });
 
         // Yuki answers HTTP 200 even when an invoice is rejected; its own counters decide.
-        const summary = typeof result === 'string' ? result : JSON.stringify(result);
-        const failed = Number(summary.match(/TotalFailed\W{0,3}(\d+)/)?.[1] ?? NaN);
-        const succeeded = Number(summary.match(/TotalSucceeded\W{0,3}(\d+)/)?.[1] ?? NaN);
-        const ok = succeeded > 0 && failed === 0;
+        const outcome = readSalesInvoiceOutcome(result);
+        const ok = outcome.status === 'succeeded';
 
         return {
-          content: [{ type: 'text' as const, text: JSON.stringify({ success: ok, reference, result }, null, 2) }],
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({ success: ok, ...outcome, reference, result }, null, 2),
+            },
+          ],
           ...(ok ? {} : { isError: true }),
         };
       } catch (err) {
@@ -449,7 +583,9 @@ export function registerInvoiceWriteTools(server: McpServer, client: YukiClient)
         'Book an incoming purchase invoice in Yuki. ' +
         'Accepts invoice totals, supplier contact, and line items. ' +
         'Optionally attach the original PDF as a base64 string. ' +
-        'Returns the Yuki response including the assigned document ID.',
+        'Returns the Yuki response including the assigned document ID. ' +
+        "KNOWN LIMITATION in this version: the request does not pass Yuki's validation, so do not rely on " +
+        'this tool. Use upload_document to hand a purchase invoice to Yuki instead.',
       inputSchema: {
         reference: z.string().optional().describe("Supplier's invoice number"),
         date: z.string().describe('Invoice date in YYYY-MM-DD format'),
@@ -590,11 +726,11 @@ function buildSalesInvoiceXml(args: {
 }): string {
   const x = escapeXml;
   const { contact } = args;
-  const vatTypes: Record<string, string> = { NL_Normal: '1', NL_Reduced: '2' };
 
   const linesXml = args.lines
-    .map(
-      (line) => `
+    .map((line) => {
+      const vat = resolveSalesVat(line.vatType, line.vatPercentage);
+      return `
       <InvoiceLine>
         <Description>${x(line.description)}</Description>
         <ProductQuantity>${line.quantity ?? 1}</ProductQuantity>
@@ -603,13 +739,13 @@ function buildSalesInvoiceXml(args: {
           ${line.productReference ? `<Reference>${x(line.productReference)}</Reference>` : ''}
           <Category xsi:nil="true" />
           <SalesPrice>${line.salesPrice}</SalesPrice>
-          <VATPercentage>${line.vatPercentage ?? 21}</VATPercentage>
+          <VATPercentage>${vat.percentage}</VATPercentage>
           <VATIncluded>${line.vatIncluded ?? false}</VATIncluded>
-          <VATType>${x(vatTypes[line.vatType ?? 'NL_Normal'] ?? line.vatType ?? '1')}</VATType>
+          <VATType>${vat.code}</VATType>
           ${line.glAccountCode ? `<GLAccountCode>${x(line.glAccountCode)}</GLAccountCode>` : ''}
         </Product>
-      </InvoiceLine>`,
-    )
+      </InvoiceLine>`;
+    })
     .join('');
 
   return `<SalesInvoices xmlns="urn:xmlns:http://www.theyukicompany.com:salesinvoices"
@@ -637,7 +773,7 @@ function buildSalesInvoiceXml(args: {
       ${contact.emailAddress ? `<EmailAddress>${x(contact.emailAddress)}</EmailAddress>` : ''}
       ${contact.cocNumber ? `<CoCNumber>${x(contact.cocNumber)}</CoCNumber>` : ''}
       ${contact.vatNumber ? `<VATNumber>${x(contact.vatNumber)}</VATNumber>` : ''}
-      <ContactType>${contact.contactType === 'Person' ? 'Person' : 'Company'}</ContactType>
+      ${contact.contactType ? `<ContactType>${x(contact.contactType)}</ContactType>` : ''}
     </Contact>
     <InvoiceLines>${linesXml}
     </InvoiceLines>

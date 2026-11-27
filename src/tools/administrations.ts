@@ -27,12 +27,17 @@ export function registerAdministrationTools(server: McpServer, client: YukiClien
     {
       description:
         'List all Yuki administrations (companies) accessible with the configured API key. ' +
-        'Run this first to discover the correct administrationID to pass to other tools.',
+        'Run this first to discover the correct administrationID to pass to other tools. ' +
+        'With several API keys in a keys file, pass administrationId to list what the key of that ' +
+        'administration can see.',
+      inputSchema: {
+        administrationId: z.string().optional().describe(DISCOVERY_ADMINISTRATION_ID),
+      },
     },
-    async () => {
+    async ({ administrationId }) => {
       try {
         // Step 1 — Authenticate and obtain (cached) sessionID
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(discoveryKeyOwner(client, administrationId));
 
         // Step 2 — Fetch administrations for this session
         const result = await client.callSoap({
@@ -86,11 +91,12 @@ export function registerAdministrationLookupTools(server: McpServer, client: Yuk
         'For a full list of administrations and IDs use get_administrations.',
       inputSchema: {
         administrationName: z.string().describe('Exact name of the administration as shown in Yuki (case-sensitive).'),
+        administrationId: z.string().optional().describe(DISCOVERY_ADMINISTRATION_ID),
       },
     },
-    async ({ administrationName }) => {
+    async ({ administrationName, administrationId }) => {
       try {
-        const sessionID = await client.getSessionID();
+        const sessionID = await client.getSessionID(discoveryKeyOwner(client, administrationId));
 
         const result = await client.callSoap({
           service: 'Accounting.asmx',
@@ -209,6 +215,31 @@ export function registerReloadKeysTools(server: McpServer, client: YukiClient): 
       }
     },
   );
+}
+
+/** Description of the optional `administrationId` on the discovery tools. */
+const DISCOVERY_ADMINISTRATION_ID =
+  'Administration ID (GUID) whose API key to use, for servers with several keys in a keys file. ' +
+  'Omit to use the server-wide YUKI_API_KEY, or the key of YUKI_DOMAIN_ID when there is none.';
+
+/**
+ * Whose API key a discovery tool authenticates with. These tools target no administration by
+ * themselves, so the order is: the administration the caller names, else the server-wide
+ * YUKI_API_KEY, else the key of the default administration (YUKI_DOMAIN_ID) from the keys file.
+ *
+ * Returns undefined for the server-wide key.
+ */
+function discoveryKeyOwner(client: YukiClient, administrationId: string | undefined): string | undefined {
+  if (administrationId) return administrationId;
+  if (client.hasDefaultApiKey) return undefined;
+  if (client.defaultDomainId) return client.defaultDomainId;
+  if (client.apiKeyCount > 0) {
+    throw new Error(
+      'No server-wide API key is configured. Pass administrationId to use the key of that administration ' +
+        'from the keys file, or set YUKI_API_KEY or YUKI_DOMAIN_ID.',
+    );
+  }
+  return undefined;
 }
 
 /** Normalise the parsed SOAP result into a flat array of administration objects. */

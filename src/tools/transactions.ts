@@ -204,7 +204,8 @@ export function registerJournalWriteTools(server: McpServer, client: YukiClient)
       description:
         'Post a general journal entry (memoriaal) in Yuki for bank reconciliation, corrections, or custom bookings. ' +
         'IMPORTANT: all entry amounts must sum to exactly 0 (positive = debit, negative = credit). ' +
-        'Yuki will reject the entry if this rule is violated.',
+        'Entries may carry different dates, but the entries of each date must sum to 0 as well. ' +
+        'Yuki rejects the whole journal if either rule is violated.',
       inputSchema: {
         subject: z
           .string()
@@ -222,9 +223,23 @@ export function registerJournalWriteTools(server: McpServer, client: YukiClient)
               entryDate: z.string().describe('Entry date in YYYY-MM-DD format'),
               glAccount: z.string().describe("GL account code (e.g. '1200' for bank, '1300' for debtors)"),
               amount: z.number().describe('Amount: positive = debit, negative = credit. All entries must sum to 0.'),
-              description: z.string().optional().describe('Line description (max 256 characters)'),
-              contactCode: z.string().optional().describe('Yuki contact code to link this entry to a relation'),
-              contactName: z.string().optional().describe('Contact name (used if contactCode is not provided)'),
+              description: z
+                .string()
+                .optional()
+                .describe(
+                  'Line description (max 256 characters). Defaults to the subject: Yuki requires one per line.',
+                ),
+              contactCode: z
+                .string()
+                .optional()
+                .describe('Yuki contact code to link this entry to a relation. Leading when given.'),
+              contactName: z
+                .string()
+                .optional()
+                .describe(
+                  'Contact name. Without contactCode Yuki matches on the exact name. ' +
+                    'A contact that cannot be found is created with this name.',
+                ),
             }),
           )
           .min(2)
@@ -284,7 +299,12 @@ export function registerJournalWriteTools(server: McpServer, client: YukiClient)
 
 // ── XML document builder ──────────────────────────────────────────────────────
 
-/** Build the xmlDoc string for ProcessJournal. */
+/**
+ * Build the xmlDoc string for ProcessJournal.
+ *
+ * Element order follows Yuki's Journal.xsd, which validates as a sequence: within a JournalEntry the
+ * contact comes first and Description — mandatory — comes last.
+ */
 function buildJournalXml(args: {
   administrationId: string;
   subject: string;
@@ -304,12 +324,12 @@ function buildJournalXml(args: {
     .map(
       (e) => `
     <JournalEntry>
+      ${e.contactName ? `<ContactName>${x(e.contactName)}</ContactName>` : ''}
+      ${e.contactCode ? `<ContactCode>${x(e.contactCode)}</ContactCode>` : ''}
       <EntryDate>${x(e.entryDate)}</EntryDate>
       <GLAccount>${x(e.glAccount)}</GLAccount>
       <Amount>${e.amount}</Amount>
-      ${e.description ? `<Description>${x(e.description.slice(0, 256))}</Description>` : ''}
-      ${e.contactCode ? `<ContactCode>${x(e.contactCode)}</ContactCode>` : ''}
-      ${!e.contactCode && e.contactName ? `<ContactName>${x(e.contactName)}</ContactName>` : ''}
+      <Description>${x((e.description?.trim() || args.subject).slice(0, 256))}</Description>
     </JournalEntry>`,
     )
     .join('');
